@@ -32,6 +32,7 @@ jobs:
           script: |
             docker service update \
               --image mantecsystems/mantec3-back:latest \
+              --force \
               --update-parallelism 1 \
               --update-delay 10s \
               automacao_mantec3 || \
