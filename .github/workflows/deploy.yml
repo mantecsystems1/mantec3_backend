@@ -22,16 +22,8 @@ jobs:
       - name: Push imagem
         run: docker push mantecsystems/mantec3-back:latest
 
-      - name: Deploy no Swarm (local)
+      # 🔥 Força atualização no Swarm usando stack
+      - name: Deploy no Swarm (stack)
         run: |
-          docker service update \
-            --image mantecsystems/mantec3-back:latest \
-            --force \
-            --update-parallelism 1 \
-            --update-delay 10s \
-            automacao_mantec3 || \
-          docker service create \
-            --name automacao_mantec3 \
-            --network backend \
-            -p 5011:3000 \
-            mantecsystems/mantec3-back:latest
+          docker pull mantecsystems/mantec3-back:latest
+          docker stack deploy -c mantec3.yml mantec3
