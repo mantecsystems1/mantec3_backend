@@ -22,8 +22,8 @@ jobs:
       - name: Push imagem
         run: docker push mantecsystems/mantec3-back:latest
 
-      # 🔥 Força atualização no Swarm usando stack
+      # 🔥 Deploy usando caminho absoluto no servidor
       - name: Deploy no Swarm (stack)
         run: |
           docker pull mantecsystems/mantec3-back:latest
-          docker stack deploy -c mantec3.yml mantec3
+          docker stack deploy -c /home/lemuel/stacks/05-apps/mantec3.yml mantec3
