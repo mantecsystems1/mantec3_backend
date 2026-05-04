@@ -14,7 +14,7 @@ export class ProdutosService {
   create(createProdutoDto: CreateProdutoDto) {
     const produtoData: any = { ...createProdutoDto };
     if (createProdutoDto.precoVenda) {
-      produtoData.precoVenda = Types.Decimal128.fromString(createProdutoDto.precoVenda);
+      produtoData.precoVenda = Types.Decimal128.fromString(String(createProdutoDto.precoVenda));
     }
     const createdProduto = new this.produtoModel(produtoData);
     return createdProduto.save();
@@ -31,7 +31,7 @@ export class ProdutosService {
   update(id: string, updateProdutoDto: UpdateProdutoDto) {
     const updateData: any = { ...updateProdutoDto };
     if (updateProdutoDto.precoVenda) {
-      updateData.precoVenda = Types.Decimal128.fromString(updateProdutoDto.precoVenda);
+      updateData.precoVenda = Types.Decimal128.fromString(String(updateProdutoDto.precoVenda));
     }
     return this.produtoModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
   }
