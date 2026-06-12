@@ -1,0 +1,65 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@notificacao_id = notificacao-{{$timestamp}}
+@consulta_imei_id = consulta-imei-{{$timestamp}}
+
+### Criar notificação
+POST {{base_url}}/notificacao
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "tipo": "ALERTA-{{$randomInt}}",
+  "destino": "destino{{$timestamp}}",
+  "mensagem": "Mensagem {{$randomInt}}",
+  "status": "ENVIADO-{{$randomInt}}"
+}
+
+> {% client.global.set("notificacao_id", response.body._id); %}
+
+### Buscar notificação
+GET {{base_url}}/notificacao/{{notificacao_id}}
+
+### Listar notificações
+GET {{base_url}}/notificacao
+
+### Atualizar notificação
+PATCH {{base_url}}/notificacao/{{notificacao_id}}
+Content-Type: application/json
+
+{
+  "status": "LIDO-{{$randomInt}}",
+  "mensagem": "Mensagem atualizada {{$timestamp}}"
+}
+
+### Deletar notificação
+DELETE {{base_url}}/notificacao/{{notificacao_id}}
+
+### Criar consulta-imei
+POST {{base_url}}/consulta-imei
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "imei": "{{$timestamp}}",
+  "resultado": "RESULTADO-{{$randomInt}}"
+}
+
+> {% client.global.set("consulta_imei_id", response.body._id); %}
+
+### Buscar consulta-imei
+GET {{base_url}}/consulta-imei/{{consulta_imei_id}}
+
+### Listar consulta-imei
+GET {{base_url}}/consulta-imei
+
+### Atualizar consulta-imei
+PATCH {{base_url}}/consulta-imei/{{consulta_imei_id}}
+Content-Type: application/json
+
+{
+  "resultado": "RESULTADO-ATUALIZADO-{{$randomInt}}"
+}
+
+### Deletar consulta-imei
+DELETE {{base_url}}/consulta-imei/{{consulta_imei_id}}

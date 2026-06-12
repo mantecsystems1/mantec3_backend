@@ -1,0 +1,36 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@produto_id = produto-{{$timestamp}}
+
+### Criar
+POST {{base_url}}/produtos
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "nome": "Produto {{$timestamp}}",
+  "descricao": "Descrição de teste {{$randomInt}}",
+  "codigoInterno": "COD{{$randomInt}}",
+  "precoVenda": {{$randomInt}},
+  "ativo": true
+}
+
+> {% client.global.set("produto_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/produtos/{{produto_id}}
+
+### Listar
+GET {{base_url}}/produtos
+
+### Atualizar
+PATCH {{base_url}}/produtos/{{produto_id}}
+Content-Type: application/json
+
+{
+  "nome": "Produto Atualizado {{$randomInt}}",
+  "precoVenda": {{$randomInt}}
+}
+
+### Deletar
+DELETE {{base_url}}/produtos/{{produto_id}}

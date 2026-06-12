@@ -1,0 +1,7 @@
+@base_url = https://mantec3.portalmantec.com.br
+
+### Root
+GET {{base_url}}/
+
+### Secure
+GET {{base_url}}/secure

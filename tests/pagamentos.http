@@ -1,0 +1,34 @@
+@base_url = https://mantec3.portalmantec.com.br
+@venda_id = venda-{{$timestamp}}
+@pagamento_id = pagamento-{{$timestamp}}
+
+### Criar
+POST {{base_url}}/pagamentos
+Content-Type: application/json
+
+{
+  "vendaId": "{{venda_id}}",
+  "formaPagamento": "PIX-{{$randomInt}}",
+  "valor": "{{$randomInt}}",
+  "dataPagamento": "{{$timestamp}}"
+}
+
+> {% client.global.set("pagamento_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/pagamentos/{{pagamento_id}}
+
+### Listar
+GET {{base_url}}/pagamentos
+
+### Atualizar
+PATCH {{base_url}}/pagamentos/{{pagamento_id}}
+Content-Type: application/json
+
+{
+  "formaPagamento": "CARTAO-{{$randomInt}}",
+  "valor": "{{$randomInt}}"
+}
+
+### Deletar
+DELETE {{base_url}}/pagamentos/{{pagamento_id}}

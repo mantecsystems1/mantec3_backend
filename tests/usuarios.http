@@ -1,0 +1,34 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@usuario_id = usuario-{{$timestamp}}
+
+### Criar
+POST {{base_url}}/usuarios
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "nome": "User {{$randomInt}}",
+  "email": "user{{$timestamp}}@teste.com",
+  "senhaHash": "hash{{$timestamp}}"
+}
+
+> {% client.global.set("usuario_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/usuarios/{{usuario_id}}
+
+### Listar
+GET {{base_url}}/usuarios
+
+### Atualizar
+PATCH {{base_url}}/usuarios/{{usuario_id}}
+Content-Type: application/json
+
+{
+  "nome": "User Atualizado {{$randomInt}}",
+  "email": "user.updated{{$timestamp}}@teste.com"
+}
+
+### Deletar
+DELETE {{base_url}}/usuarios/{{usuario_id}}

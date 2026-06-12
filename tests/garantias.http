@@ -1,0 +1,141 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@cliente_id = cliente-{{$timestamp}}
+@venda_id = venda-{{$timestamp}}
+@produto_id = produto-{{$timestamp}}
+@fornecedor_id = fornecedor-{{$timestamp}}
+@garantia_id = garantia-{{$timestamp}}
+@envio_id = envio-{{$timestamp}}
+@retorno_id = retorno-{{$timestamp}}
+@credito_id = credito-{{$timestamp}}
+
+### Criar garantia
+POST {{base_url}}/garantias
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "clienteId": "{{cliente_id}}",
+  "vendaId": "{{venda_id}}",
+  "ordemServicoId": "ordem-{{$timestamp}}",
+  "produtoId": "{{produto_id}}",
+  "quantidade": {{$randomInt}},
+  "motivo": "Defeito {{$randomInt}}",
+  "status": "ABERTO-{{$randomInt}}",
+  "fornecedorId": "{{fornecedor_id}}"
+}
+
+> {% client.global.set("garantia_id", response.body._id); %}
+
+### Buscar garantia
+GET {{base_url}}/garantias/{{garantia_id}}
+
+### Listar garantias
+GET {{base_url}}/garantias
+
+### Atualizar garantia
+PATCH {{base_url}}/garantias/{{garantia_id}}
+Content-Type: application/json
+
+{
+  "status": "EM_PROCESSAMENTO-{{$randomInt}}",
+  "motivo": "Atualizado {{$timestamp}}"
+}
+
+### Deletar garantia
+DELETE {{base_url}}/garantias/{{garantia_id}}
+
+### Criar envio
+POST {{base_url}}/garantias/envios
+Content-Type: application/json
+
+{
+  "garantiaId": "{{garantia_id}}",
+  "dataEnvio": "{{$timestamp}}",
+  "codigoRastreio": "TRACK{{$timestamp}}",
+  "observacoes": "Envio {{$randomInt}}"
+}
+
+> {% client.global.set("envio_id", response.body._id); %}
+
+### Buscar envio
+GET {{base_url}}/garantias/envios/{{envio_id}}
+
+### Listar envios
+GET {{base_url}}/garantias/envios
+
+### Atualizar envio
+PATCH {{base_url}}/garantias/envios/{{envio_id}}
+Content-Type: application/json
+
+{
+  "codigoRastreio": "TRACK-UPDATED-{{$randomInt}}",
+  "observacoes": "Atualizado {{$timestamp}}"
+}
+
+### Deletar envio
+DELETE {{base_url}}/garantias/envios/{{envio_id}}
+
+### Criar retorno
+POST {{base_url}}/garantias/retornos
+Content-Type: application/json
+
+{
+  "garantiaId": "{{garantia_id}}",
+  "tipoRetorno": "RETORNO-{{$randomInt}}",
+  "produtoSubstitutoId": "{{produto_id}}",
+  "valorCredito": {{$randomInt}},
+  "dataRetorno": "{{$timestamp}}",
+  "observacoes": "Retorno {{$randomInt}}"
+}
+
+> {% client.global.set("retorno_id", response.body._id); %}
+
+### Buscar retorno
+GET {{base_url}}/garantias/retornos/{{retorno_id}}
+
+### Listar retornos
+GET {{base_url}}/garantias/retornos
+
+### Atualizar retorno
+PATCH {{base_url}}/garantias/retornos/{{retorno_id}}
+Content-Type: application/json
+
+{
+  "tipoRetorno": "RETORNO-ATUALIZADO-{{$randomInt}}",
+  "observacoes": "Atualizado {{$timestamp}}"
+}
+
+### Deletar retorno
+DELETE {{base_url}}/garantias/retornos/{{retorno_id}}
+
+### Criar crédito fornecedor
+POST {{base_url}}/garantias/creditos
+Content-Type: application/json
+
+{
+  "fornecedorId": "{{fornecedor_id}}",
+  "garantiaId": "{{garantia_id}}",
+  "valor": {{$randomInt}},
+  "utilizado": false
+}
+
+> {% client.global.set("credito_id", response.body._id); %}
+
+### Buscar crédito
+GET {{base_url}}/garantias/creditos/{{credito_id}}
+
+### Listar créditos
+GET {{base_url}}/garantias/creditos
+
+### Atualizar crédito
+PATCH {{base_url}}/garantias/creditos/{{credito_id}}
+Content-Type: application/json
+
+{
+  "valor": {{$randomInt}},
+  "utilizado": true
+}
+
+### Deletar crédito
+DELETE {{base_url}}/garantias/creditos/{{credito_id}}

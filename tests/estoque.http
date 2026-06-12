@@ -1,0 +1,37 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@produto_id = produto-{{$timestamp}}
+@movimento_id = movimento-{{$timestamp}}
+
+### Criar
+POST {{base_url}}/estoque/movimentos
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "produtoId": "{{produto_id}}",
+  "tipo": "ENTRADA-{{$randomInt}}",
+  "quantidade": {{$randomInt}},
+  "origemTipo": "PEDIDO-{{$timestamp}}",
+  "origemId": "origem-{{$randomInt}}"
+}
+
+> {% client.global.set("movimento_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/estoque/movimentos/{{movimento_id}}
+
+### Listar
+GET {{base_url}}/estoque/movimentos
+
+### Atualizar
+PATCH {{base_url}}/estoque/movimentos/{{movimento_id}}
+Content-Type: application/json
+
+{
+  "quantidade": {{$randomInt}},
+  "origemTipo": "AJUSTE-{{$randomInt}}"
+}
+
+### Deletar
+DELETE {{base_url}}/estoque/movimentos/{{movimento_id}}

@@ -1,0 +1,166 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@cliente_id = cliente-{{$timestamp}}
+@recebimento_id = recebimento-{{$timestamp}}
+@midia_id = midia-{{$timestamp}}
+@termo_id = termo-{{$timestamp}}
+@condicao_id = condicao-{{$timestamp}}
+@componentes_ausentes_id = componentes-{{$timestamp}}
+
+### Criar recebimento-equipamento
+POST {{base_url}}/recebimento-equipamento
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "clienteId": "{{cliente_id}}",
+  "tipoEquipamento": "Smartphone-{{$randomInt}}",
+  "marca": "Marca {{$randomInt}}",
+  "modelo": "Modelo {{$timestamp}}",
+  "imeiOuSerial": "IMEI{{$timestamp}}",
+  "dataRecebimento": "{{$timestamp}}",
+  "recebidoPor": "Técnico {{$randomInt}}",
+  "observacoesGerais": "Recebimento {{$randomInt}}",
+  "status": "RECEBIDO-{{$randomInt}}"
+}
+
+> {% client.global.set("recebimento_id", response.body._id); %}
+
+### Buscar recebimento-equipamento
+GET {{base_url}}/recebimento-equipamento/{{recebimento_id}}
+
+### Listar recebimento-equipamento
+GET {{base_url}}/recebimento-equipamento
+
+### Atualizar recebimento-equipamento
+PATCH {{base_url}}/recebimento-equipamento/{{recebimento_id}}
+Content-Type: application/json
+
+{
+  "status": "EM_ANALISE-{{$randomInt}}",
+  "observacoesGerais": "Atualizado {{$timestamp}}"
+}
+
+### Deletar recebimento-equipamento
+DELETE {{base_url}}/recebimento-equipamento/{{recebimento_id}}
+
+### Criar midias-recebimento
+POST {{base_url}}/midias-recebimento
+Content-Type: application/json
+
+{
+  "recebimentoEquipamentoId": "{{recebimento_id}}",
+  "tipo": "Foto",
+  "urlArquivo": "https://files.teste.com/midia-{{$timestamp}}.jpg",
+  "descricao": "Arquivo {{$randomInt}}"
+}
+
+> {% client.global.set("midia_id", response.body._id); %}
+
+### Buscar midia
+GET {{base_url}}/midias-recebimento/{{midia_id}}
+
+### Listar midias
+GET {{base_url}}/midias-recebimento
+
+### Atualizar midia
+PATCH {{base_url}}/midias-recebimento/{{midia_id}}
+Content-Type: application/json
+
+{
+  "descricao": "Atualizado {{$timestamp}}"
+}
+
+### Deletar midia
+DELETE {{base_url}}/midias-recebimento/{{midia_id}}
+
+### Criar termos-recebimento
+POST {{base_url}}/termos-recebimento
+Content-Type: application/json
+
+{
+  "recebimentoEquipamentoId": "{{recebimento_id}}",
+  "texto": "Termo {{$randomInt}}",
+  "assinado": true,
+  "metodoAssinatura": "DIGITAL-{{$randomInt}}",
+  "dataAssinatura": "{{$timestamp}}"
+}
+
+> {% client.global.set("termo_id", response.body._id); %}
+
+### Buscar termo
+GET {{base_url}}/termos-recebimento/{{termo_id}}
+
+### Listar termos
+GET {{base_url}}/termos-recebimento
+
+### Atualizar termo
+PATCH {{base_url}}/termos-recebimento/{{termo_id}}
+Content-Type: application/json
+
+{
+  "texto": "Termo Atualizado {{$randomInt}}"
+}
+
+### Deletar termo
+DELETE {{base_url}}/termos-recebimento/{{termo_id}}
+
+### Criar condicoes-equipamento
+POST {{base_url}}/condicoes-equipamento
+Content-Type: application/json
+
+{
+  "recebimentoEquipamentoId": "{{recebimento_id}}",
+  "categoria": "Categoria {{$randomInt}}",
+  "tipo": "Tipo {{$randomInt}}",
+  "severidade": "Alta",
+  "observacoes": "Condição {{$timestamp}}"
+}
+
+> {% client.global.set("condicao_id", response.body._id); %}
+
+### Buscar condicao
+GET {{base_url}}/condicoes-equipamento/{{condicao_id}}
+
+### Listar condicoes
+GET {{base_url}}/condicoes-equipamento
+
+### Atualizar condicao
+PATCH {{base_url}}/condicoes-equipamento/{{condicao_id}}
+Content-Type: application/json
+
+{
+  "observacoes": "Atualizado {{$timestamp}}"
+}
+
+### Deletar condicao
+DELETE {{base_url}}/condicoes-equipamento/{{condicao_id}}
+
+### Criar componentes-ausentes
+POST {{base_url}}/componentes-ausentes
+Content-Type: application/json
+
+{
+  "recebimentoEquipamentoId": "{{recebimento_id}}",
+  "nomeComponente": "Peça {{$randomInt}}",
+  "observacoes": "Ausente {{$timestamp}}"
+}
+
+> {% client.global.set("componentes_ausentes_id", response.body._id); %}
+
+### Buscar componente ausente
+GET {{base_url}}/componentes-ausentes/{{componentes_ausentes_id}}
+
+### Listar componentes ausentes
+GET {{base_url}}/componentes-ausentes
+
+### Atualizar componente ausente
+PATCH {{base_url}}/componentes-ausentes/{{componentes_ausentes_id}}
+Content-Type: application/json
+
+{
+  "observacoes": "Atualizado {{$timestamp}}"
+}
+
+### Deletar componente ausente
+DELETE {{base_url}}/componentes-ausentes/{{componentes_ausentes_id}}

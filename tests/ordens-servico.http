@@ -1,0 +1,72 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@cliente_id = cliente-{{$timestamp}}
+@recebimento_id = recebimento-{{$timestamp}}
+@ordem_id = ordem-{{$timestamp}}
+@produto_id = produto-{{$timestamp}}
+@item_utilizado_id = item-utilizado-{{$timestamp}}
+
+### Criar ordem-servico
+POST {{base_url}}/ordens-servico
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "clienteId": "{{cliente_id}}",
+  "tecnicoId": "tecnico-{{$randomInt}}",
+  "orcamentoId": "orcamento-{{$timestamp}}",
+  "recebimentoEquipamentoId": "{{recebimento_id}}",
+  "statusOperacional": "ABERTO-{{$randomInt}}",
+  "prioridade": "MEDIA-{{$randomInt}}",
+  "dataEntrada": "{{$timestamp}}",
+  "dataConclusao": "{{$timestamp}}"
+}
+
+> {% client.global.set("ordem_id", response.body._id); %}
+
+### Buscar ordem-servico
+GET {{base_url}}/ordens-servico/{{ordem_id}}
+
+### Listar ordens-servico
+GET {{base_url}}/ordens-servico
+
+### Atualizar ordem-servico
+PATCH {{base_url}}/ordens-servico/{{ordem_id}}
+Content-Type: application/json
+
+{
+  "statusOperacional": "EM_ANDAMENTO-{{$randomInt}}",
+  "prioridade": "ALTA-{{$timestamp}}"
+}
+
+### Deletar ordem-servico
+DELETE {{base_url}}/ordens-servico/{{ordem_id}}
+
+### Criar itens-utilizados
+POST {{base_url}}/ordens-servico/itens-utilizados
+Content-Type: application/json
+
+{
+  "ordemServicoId": "{{ordem_id}}",
+  "produtoId": "{{produto_id}}",
+  "quantidade": {{$randomInt}}
+}
+
+> {% client.global.set("item_utilizado_id", response.body._id); %}
+
+### Buscar itens-utilizados
+GET {{base_url}}/ordens-servico/itens-utilizados/{{item_utilizado_id}}
+
+### Listar itens-utilizados
+GET {{base_url}}/ordens-servico/itens-utilizados
+
+### Atualizar itens-utilizados
+PATCH {{base_url}}/ordens-servico/itens-utilizados/{{item_utilizado_id}}
+Content-Type: application/json
+
+{
+  "quantidade": {{$randomInt}}
+}
+
+### Deletar itens-utilizados
+DELETE {{base_url}}/ordens-servico/itens-utilizados/{{item_utilizado_id}}

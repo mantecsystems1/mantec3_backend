@@ -1,0 +1,71 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@venda_id = venda-{{$timestamp}}
+@produto_id = produto-{{$timestamp}}
+@venda_item_id = venda-item-{{$timestamp}}
+
+### Criar
+POST {{base_url}}/vendas
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "clienteId": "00000000000{{$timestamp}}",
+  "origemTipo": "WEB",
+  "origemId": "origem-{{$randomInt}}",
+  "subtotal": "{{$randomInt}}",
+  "descontos": "0",
+  "total": "{{$randomInt}}",
+  "statusFinanceiro": "PENDENTE"
+}
+
+> {% client.global.set("venda_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/vendas/{{venda_id}}
+
+### Listar
+GET {{base_url}}/vendas
+
+### Atualizar
+PATCH {{base_url}}/vendas/{{venda_id}}
+Content-Type: application/json
+
+{
+  "statusFinanceiro": "PAGO-{{$randomInt}}",
+  "total": "{{$randomInt}}"
+}
+
+### Deletar
+DELETE {{base_url}}/vendas/{{venda_id}}
+
+### Criar item
+POST {{base_url}}/vendas/itens
+Content-Type: application/json
+
+{
+  "vendaId": "{{venda_id}}",
+  "produtoId": "{{produto_id}}",
+  "quantidade": {{$randomInt}},
+  "valorUnitario": "{{$randomInt}}"
+}
+
+> {% client.global.set("venda_item_id", response.body._id); %}
+
+### Buscar item
+GET {{base_url}}/vendas/itens/{{venda_item_id}}
+
+### Listar itens
+GET {{base_url}}/vendas/itens
+
+### Atualizar item
+PATCH {{base_url}}/vendas/itens/{{venda_item_id}}
+Content-Type: application/json
+
+{
+  "quantidade": {{$randomInt}},
+  "valorUnitario": "{{$randomInt}}"
+}
+
+### Deletar item
+DELETE {{base_url}}/vendas/itens/{{venda_item_id}}

@@ -1,0 +1,41 @@
+@base_url = https://mantec3.portalmantec.com.br
+
+### Criar
+POST {{base_url}}/empresas
+Content-Type: application/json
+
+{
+  "nomeFantasia": "Empresa {{$randomInt}}",
+  "razaoSocial": "Empresa {{$timestamp}} Ltda",
+  "cnpj": "12345678{{$randomInt}}",
+  "email": "teste{{$timestamp}}@empresa.com",
+  "telefone": "+5516999999999",
+  "endereco": {
+    "logradouro": "Rua {{$randomInt}}",
+    "numero": "{{$randomInt}}",
+    "bairro": "Centro",
+    "cidade": "Matão",
+    "estado": "SP",
+    "cep": "14000000"
+  }
+}
+
+> {% client.global.set("empresa_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/empresas/{{empresa_id}}
+
+### Listar
+GET {{base_url}}/empresas
+
+### Atualizar
+PATCH {{base_url}}/empresas/{{empresa_id}}
+Content-Type: application/json
+
+{
+  "nomeFantasia": "Empresa Atualizada {{$randomInt}}",
+  "telefone": "+55{{$randomInt}}"
+}
+
+### Deletar
+DELETE {{base_url}}/empresas/{{empresa_id}}

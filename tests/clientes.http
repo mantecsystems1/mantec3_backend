@@ -1,0 +1,44 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@cliente_id = cliente-{{$timestamp}}
+
+### Criar
+POST {{base_url}}/clientes
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "nome": "Cliente {{$timestamp}}",
+  "cpfCnpj": "{{$timestamp}}",
+  "telefone": "+55{{$randomInt}}",
+  "email": "cliente{{$timestamp}}@teste.com",
+  "endereco": {
+    "logradouro": "Rua {{$randomInt}}",
+    "numero": "{{$randomInt}}",
+    "bairro": "Bairro {{$randomInt}}",
+    "cidade": "Cidade {{$randomInt}}",
+    "estado": "SP",
+    "cep": "{{$randomInt}}"
+  },
+  "ativo": true
+}
+
+> {% client.global.set("cliente_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/clientes/{{cliente_id}}
+
+### Listar
+GET {{base_url}}/clientes
+
+### Atualizar
+PATCH {{base_url}}/clientes/{{cliente_id}}
+Content-Type: application/json
+
+{
+  "nome": "Cliente Atualizado {{$randomInt}}",
+  "email": "cliente.updated{{$timestamp}}@teste.com"
+}
+
+### Deletar
+DELETE {{base_url}}/clientes/{{cliente_id}}

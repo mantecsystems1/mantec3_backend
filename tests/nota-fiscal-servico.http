@@ -1,0 +1,35 @@
+@base_url = https://mantec3.portalmantec.com.br
+@venda_id = venda-{{$timestamp}}
+@nota_fiscal_servico_id = nota-fiscal-{{$timestamp}}
+
+### Criar
+POST {{base_url}}/nota-fiscal-servico
+Content-Type: application/json
+
+{
+  "vendaId": "{{venda_id}}",
+  "numero": "NF-{{$timestamp}}",
+  "status": "GERADA-{{$randomInt}}",
+  "xml": "<xml>NF{{$timestamp}}</xml>",
+  "pdfUrl": "https://files.teste.com/nf-{{$timestamp}}.pdf"
+}
+
+> {% client.global.set("nota_fiscal_servico_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/nota-fiscal-servico/{{nota_fiscal_servico_id}}
+
+### Listar
+GET {{base_url}}/nota-fiscal-servico
+
+### Atualizar
+PATCH {{base_url}}/nota-fiscal-servico/{{nota_fiscal_servico_id}}
+Content-Type: application/json
+
+{
+  "status": "ATUALIZADA-{{$randomInt}}",
+  "pdfUrl": "https://files.teste.com/nf-updated-{{$timestamp}}.pdf"
+}
+
+### Deletar
+DELETE {{base_url}}/nota-fiscal-servico/{{nota_fiscal_servico_id}}

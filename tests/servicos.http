@@ -1,0 +1,36 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@servico_id = servico-{{$timestamp}}
+
+### Criar
+POST {{base_url}}/servicos
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "nome": "Serviço {{$timestamp}}",
+  "descricao": "Descrição {{$randomInt}}",
+  "precoPadrao": "{{$randomInt}}",
+  "tempoEstimado": {{$randomInt}},
+  "ativo": true
+}
+
+> {% client.global.set("servico_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/servicos/{{servico_id}}
+
+### Listar
+GET {{base_url}}/servicos
+
+### Atualizar
+PATCH {{base_url}}/servicos/{{servico_id}}
+Content-Type: application/json
+
+{
+  "nome": "Serviço Atualizado {{$randomInt}}",
+  "precoPadrao": "{{$randomInt}}"
+}
+
+### Deletar
+DELETE {{base_url}}/servicos/{{servico_id}}

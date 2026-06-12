@@ -57,6 +57,22 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## REST Client API smoke tests
+
+The `tests` folder contains REST Client files for endpoint CRUD flows.
+
+1. Open VS Code.
+2. Install the REST Client extension if needed.
+3. Open a file under `tests/`, for example `tests/app.http`.
+4. Click the `Send Request` link above each request.
+5. Use the recorded variables like `{{empresa_id}}`, `{{usuario_id}}`, `{{produto_id}}`, `{{venda_id}}`, etc.
+
+All requests use:
+
+- `@base_url = https://mantec3.portalmantec.com.br`
+- `Content-Type: application/json` for `POST` and `PATCH`
+- dynamic data with `{{$randomInt}}` and `{{$timestamp}}`
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

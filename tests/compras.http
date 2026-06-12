@@ -1,0 +1,102 @@
+@base_url = https://mantec3.portalmantec.com.br
+@empresa_id = empresa-{{$timestamp}}
+@fornecedor_id = fornecedor-{{$timestamp}}
+@pedido_compra_id = pedido-compra-{{$timestamp}}
+@item_pedido_compra_id = item-pedido-compra-{{$timestamp}}
+@produto_id = produto-{{$timestamp}}
+
+### Criar fornecedor
+POST {{base_url}}/compras/fornecedores
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "nome": "Fornecedor {{$timestamp}}",
+  "cnpj": "{{$timestamp}}",
+  "telefone": "+55{{$randomInt}}",
+  "whatsapp": "+55{{$randomInt}}",
+  "email": "fornecedor{{$timestamp}}@teste.com",
+  "ativo": true
+}
+
+> {% client.global.set("fornecedor_id", response.body._id); %}
+
+### Buscar fornecedor
+GET {{base_url}}/compras/fornecedores/{{fornecedor_id}}
+
+### Listar fornecedores
+GET {{base_url}}/compras/fornecedores
+
+### Atualizar fornecedor
+PATCH {{base_url}}/compras/fornecedores/{{fornecedor_id}}
+Content-Type: application/json
+
+{
+  "nome": "Fornecedor Atualizado {{$randomInt}}",
+  "telefone": "+55{{$randomInt}}"
+}
+
+### Deletar fornecedor
+DELETE {{base_url}}/compras/fornecedores/{{fornecedor_id}}
+
+### Criar pedido-compra
+POST {{base_url}}/compras/pedidos-compra
+Content-Type: application/json
+
+{
+  "empresaId": "{{empresa_id}}",
+  "fornecedorId": "{{fornecedor_id}}",
+  "status": "ABERTO-{{$randomInt}}",
+  "observacoes": "Pedido {{$timestamp}}"
+}
+
+> {% client.global.set("pedido_compra_id", response.body._id); %}
+
+### Buscar pedido-compra
+GET {{base_url}}/compras/pedidos-compra/{{pedido_compra_id}}
+
+### Listar pedidos-compra
+GET {{base_url}}/compras/pedidos-compra
+
+### Atualizar pedido-compra
+PATCH {{base_url}}/compras/pedidos-compra/{{pedido_compra_id}}
+Content-Type: application/json
+
+{
+  "status": "ATUALIZADO-{{$randomInt}}",
+  "observacoes": "Pedido atualizado {{$timestamp}}"
+}
+
+### Deletar pedido-compra
+DELETE {{base_url}}/compras/pedidos-compra/{{pedido_compra_id}}
+
+### Criar item-pedido-compra
+POST {{base_url}}/compras/itens-pedido-compra
+Content-Type: application/json
+
+{
+  "pedidoCompraId": "{{pedido_compra_id}}",
+  "produtoId": "{{produto_id}}",
+  "quantidade": {{$randomInt}},
+  "valorUnitario": "{{$randomInt}}"
+}
+
+> {% client.global.set("item_pedido_compra_id", response.body._id); %}
+
+### Buscar item-pedido-compra
+GET {{base_url}}/compras/itens-pedido-compra/{{item_pedido_compra_id}}
+
+### Listar itens-pedido-compra
+GET {{base_url}}/compras/itens-pedido-compra
+
+### Atualizar item-pedido-compra
+PATCH {{base_url}}/compras/itens-pedido-compra/{{item_pedido_compra_id}}
+Content-Type: application/json
+
+{
+  "quantidade": {{$randomInt}},
+  "valorUnitario": "{{$randomInt}}"
+}
+
+### Deletar item-pedido-compra
+DELETE {{base_url}}/compras/itens-pedido-compra/{{item_pedido_compra_id}}

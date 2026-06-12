@@ -1,0 +1,37 @@
+@base_url = https://mantec3.portalmantec.com.br
+@produto_id = produto-{{$timestamp}}
+@compatibilidade_id = compatibilidade-{{$timestamp}}
+
+### Criar
+POST {{base_url}}/compatibilidade
+Content-Type: application/json
+
+{
+  "produtoId": "{{produto_id}}",
+  "marca": "Marca {{$randomInt}}",
+  "modelo": "Modelo {{$timestamp}}",
+  "observacoes": "Observação {{$randomInt}}"
+}
+
+> {% client.global.set("compatibilidade_id", response.body._id); %}
+
+### Buscar
+GET {{base_url}}/compatibilidade/{{compatibilidade_id}}
+
+### Listar
+GET {{base_url}}/compatibilidade
+
+### Buscar por produto
+GET {{base_url}}/compatibilidade/produto/{{produto_id}}
+
+### Atualizar
+PATCH {{base_url}}/compatibilidade/{{compatibilidade_id}}
+Content-Type: application/json
+
+{
+  "modelo": "Modelo Atualizado {{$randomInt}}",
+  "observacoes": "Observação atualizada {{$timestamp}}"
+}
+
+### Deletar
+DELETE {{base_url}}/compatibilidade/{{compatibilidade_id}}
