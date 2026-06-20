@@ -15,5 +15,9 @@ export class UpdateUsuarioDto {
 
   @IsString()
   @IsOptional()
+  senha?: string;
+
+  @IsString()
+  @IsOptional()
   senhaHash?: string;
 }

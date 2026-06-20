@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsEmail, IsMongoId } from 'class-validator';
+import { IsString, IsNotEmpty, IsEmail, IsMongoId, IsOptional } from 'class-validator';
 
 export class CreateUsuarioDto {
   @IsMongoId()
@@ -14,6 +14,10 @@ export class CreateUsuarioDto {
   email: string;
 
   @IsString()
-  @IsNotEmpty()
-  senhaHash: string; // In a real app, we'd take a password and hash it in the service.
+  @IsOptional()
+  senha?: string;
+
+  @IsString()
+  @IsOptional()
+  senhaHash?: string;
 }

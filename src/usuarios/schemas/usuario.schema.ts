@@ -15,7 +15,7 @@ export class Usuario {
   @Prop({ required: true, unique: true })
   email: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, select: false })
   senhaHash: string;
 
   @Prop({ default: true })
