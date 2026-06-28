@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Cliente, ClienteDocument } from './schemas/cliente.schema';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UpdateClienteDto } from './dto/update-cliente.dto';
@@ -12,6 +12,10 @@ export class ClientesService {
   ) {}
 
   create(createClienteDto: CreateClienteDto) {
+    if (!Types.ObjectId.isValid(createClienteDto.empresaId)) {
+      throw new BadRequestException('Empresa invalida para o cadastro do cliente');
+    }
+
     const createdCliente = new this.clienteModel(createClienteDto);
     return createdCliente.save();
   }
