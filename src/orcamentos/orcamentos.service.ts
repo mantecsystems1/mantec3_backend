@@ -32,11 +32,23 @@ export class OrcamentosService {
   }
 
   findAll() {
-    return this.orcamentoModel.find().exec();
+    return this.orcamentoModel
+      .find()
+      .populate('empresaId', 'nomeFantasia razaoSocial')
+      .populate('clienteId', 'nome cpfCnpj')
+      .populate('recebimentoEquipamentoId', 'tipoEquipamento marca modelo imeiOuSerial')
+      .populate('criadoPor', 'nome email')
+      .exec();
   }
 
   findOne(id: string) {
-    return this.orcamentoModel.findById(id).exec();
+    return this.orcamentoModel
+      .findById(id)
+      .populate('empresaId', 'nomeFantasia razaoSocial')
+      .populate('clienteId', 'nome cpfCnpj')
+      .populate('recebimentoEquipamentoId', 'tipoEquipamento marca modelo imeiOuSerial')
+      .populate('criadoPor', 'nome email')
+      .exec();
   }
 
   update(id: string, updateOrcamentoDto: UpdateOrcamentoDto) {

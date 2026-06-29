@@ -20,4 +20,8 @@ export class UpdateUsuarioDto {
   @IsString()
   @IsOptional()
   senhaHash?: string;
+
+  @IsString()
+  @IsOptional()
+  perfil?: string;
 }

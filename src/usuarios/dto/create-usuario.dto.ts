@@ -20,4 +20,8 @@ export class CreateUsuarioDto {
   @IsString()
   @IsOptional()
   senhaHash?: string;
+
+  @IsString()
+  @IsOptional()
+  perfil?: string;
 }

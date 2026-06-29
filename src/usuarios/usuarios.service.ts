@@ -34,11 +34,11 @@ export class UsuariosService {
   }
 
   findAll() {
-    return this.usuarioModel.find().exec();
+    return this.usuarioModel.find().populate('empresaId', 'nomeFantasia razaoSocial').exec();
   }
 
   findOne(id: string) {
-    return this.usuarioModel.findById(id).exec();
+    return this.usuarioModel.findById(id).populate('empresaId', 'nomeFantasia razaoSocial').exec();
   }
 
   findByEmail(email: string) {

@@ -1,4 +1,4 @@
-import { IsMongoId, IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsMongoId, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateMidiasRecebimentoDto {
   @IsMongoId()
@@ -8,7 +8,8 @@ export class CreateMidiasRecebimentoDto {
   @IsNotEmpty()
   tipo: string;
 
-  @IsUrl({ require_protocol: true })
+  @IsString()
+  @IsNotEmpty()
   urlArquivo: string;
 
   @IsOptional()

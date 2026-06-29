@@ -30,11 +30,27 @@ export class GarantiasService {
   }
 
   findAllGarantias() {
-    return this.garantiaModel.find().exec();
+    return this.garantiaModel
+      .find()
+      .populate('empresaId', 'nomeFantasia razaoSocial')
+      .populate('clienteId', 'nome cpfCnpj')
+      .populate('vendaId', 'numero total dataVenda status')
+      .populate('ordemServicoId', 'statusOperacional prioridade dataEntrada')
+      .populate('produtoId', 'nome codigoInterno precoVenda')
+      .populate('fornecedorId', 'nome cnpj')
+      .exec();
   }
 
   findOneGarantia(id: string) {
-    return this.garantiaModel.findById(id).exec();
+    return this.garantiaModel
+      .findById(id)
+      .populate('empresaId', 'nomeFantasia razaoSocial')
+      .populate('clienteId', 'nome cpfCnpj')
+      .populate('vendaId', 'numero total dataVenda status')
+      .populate('ordemServicoId', 'statusOperacional prioridade dataEntrada')
+      .populate('produtoId', 'nome codigoInterno precoVenda')
+      .populate('fornecedorId', 'nome cnpj')
+      .exec();
   }
 
   updateGarantia(id: string, updateGarantiaDto: UpdateGarantiaDto) {

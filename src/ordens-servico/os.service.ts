@@ -22,11 +22,25 @@ export class OsService {
   }
 
   findAll() {
-    return this.ordemServicoModel.find().exec();
+    return this.ordemServicoModel
+      .find()
+      .populate('empresaId', 'nomeFantasia razaoSocial')
+      .populate('clienteId', 'nome cpfCnpj')
+      .populate('tecnicoId', 'nome email perfil')
+      .populate('recebimentoEquipamentoId', 'tipoEquipamento marca modelo imeiOuSerial')
+      .populate('orcamentoId', 'total status validade')
+      .exec();
   }
 
   findOne(id: string) {
-    return this.ordemServicoModel.findById(id).exec();
+    return this.ordemServicoModel
+      .findById(id)
+      .populate('empresaId', 'nomeFantasia razaoSocial')
+      .populate('clienteId', 'nome cpfCnpj')
+      .populate('tecnicoId', 'nome email perfil')
+      .populate('recebimentoEquipamentoId', 'tipoEquipamento marca modelo imeiOuSerial')
+      .populate('orcamentoId', 'total status validade')
+      .exec();
   }
 
   update(id: string, updateOrdemServicoDto: UpdateOrdemServicoDto) {

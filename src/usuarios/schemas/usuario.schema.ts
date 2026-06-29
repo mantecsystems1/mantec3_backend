@@ -21,6 +21,9 @@ export class Usuario {
   @Prop({ default: true })
   ativo: boolean;
 
+  @Prop({ default: 'tecnico' })
+  perfil: string;
+
   criadoEm: Date;
 }
 

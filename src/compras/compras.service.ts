@@ -48,11 +48,19 @@ export class ComprasService {
   }
 
   findAllPedidosCompra() {
-    return this.pedidosCompraModel.find().exec();
+    return this.pedidosCompraModel
+      .find()
+      .populate('empresaId', 'nomeFantasia razaoSocial')
+      .populate('fornecedorId', 'nome cnpj')
+      .exec();
   }
 
   findOnePedidoCompra(id: string) {
-    return this.pedidosCompraModel.findById(id).exec();
+    return this.pedidosCompraModel
+      .findById(id)
+      .populate('empresaId', 'nomeFantasia razaoSocial')
+      .populate('fornecedorId', 'nome cnpj')
+      .exec();
   }
 
   updatePedidoCompra(id: string, updatePedidoCompraDto: UpdatePedidoCompraDto) {
