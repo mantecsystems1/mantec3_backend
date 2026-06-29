@@ -42,25 +42,45 @@ export class ComprasService {
   }
 
   // PedidosCompra CRUD
-  createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto) {
-    const createdPedidoCompra = new this.pedidosCompraModel(createPedidoCompraDto);
-    return createdPedidoCompra.save();
+  async createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto & { itens?: Omit<CreateItensPedidoCompraDto, 'pedidoCompraId'>[] }) {
+    const { itens = [], ...pedidoDto } = createPedidoCompraDto;
+    const createdPedidoCompra = await new this.pedidosCompraModel(pedidoDto).save();
+    const pedidoCompraId = String(createdPedidoCompra._id);
+
+    if (itens.length > 0) {
+      await Promise.all(
+        itens.map((item) =>
+          this.createItensPedidoCompra({
+            ...item,
+            pedidoCompraId,
+          }),
+        ),
+      );
+    }
+
+    return this.findOnePedidoCompra(pedidoCompraId);
   }
 
-  findAllPedidosCompra() {
-    return this.pedidosCompraModel
+  async findAllPedidosCompra() {
+    const pedidos = await this.pedidosCompraModel
       .find()
       .populate('empresaId', 'nomeFantasia razaoSocial')
       .populate('fornecedorId', 'nome cnpj')
+      .lean()
       .exec();
+
+    return Promise.all(pedidos.map((pedido) => this.attachItensPedidoCompra(pedido)));
   }
 
-  findOnePedidoCompra(id: string) {
-    return this.pedidosCompraModel
+  async findOnePedidoCompra(id: string) {
+    const pedido = await this.pedidosCompraModel
       .findById(id)
       .populate('empresaId', 'nomeFantasia razaoSocial')
       .populate('fornecedorId', 'nome cnpj')
+      .lean()
       .exec();
+
+    return pedido ? this.attachItensPedidoCompra(pedido) : null;
   }
 
   updatePedidoCompra(id: string, updatePedidoCompraDto: UpdatePedidoCompraDto) {
@@ -82,11 +102,19 @@ export class ComprasService {
   }
 
   findAllItensPedidoCompra() {
-    return this.itensPedidoCompraModel.find().exec();
+    return this.itensPedidoCompraModel
+      .find()
+      .populate('pedidoCompraId', 'status observacoes')
+      .populate('produtoId', 'nome codigoInterno precoVenda')
+      .exec();
   }
 
   findOneItensPedidoCompra(id: string) {
-    return this.itensPedidoCompraModel.findById(id).exec();
+    return this.itensPedidoCompraModel
+      .findById(id)
+      .populate('pedidoCompraId', 'status observacoes')
+      .populate('produtoId', 'nome codigoInterno precoVenda')
+      .exec();
   }
 
   updateItensPedidoCompra(id: string, updateItensPedidoCompraDto: UpdateItensPedidoCompraDto) {
@@ -99,5 +127,24 @@ export class ComprasService {
 
   removeItensPedidoCompra(id: string) {
     return this.itensPedidoCompraModel.findByIdAndDelete(id).exec();
+  }
+
+  private async attachItensPedidoCompra(pedido: any) {
+    const itens = await this.itensPedidoCompraModel
+      .find({ pedidoCompraId: pedido._id })
+      .populate('produtoId', 'nome codigoInterno precoVenda')
+      .lean()
+      .exec();
+
+    const total = itens.reduce((sum, item: any) => {
+      const decimalValue = item.valorUnitario?.$numberDecimal ?? item.valorUnitario?.toString?.() ?? '0';
+      return sum + Number(decimalValue) * Number(item.quantidade ?? 0);
+    }, 0);
+
+    return {
+      ...pedido,
+      itens,
+      total,
+    };
   }
 }
