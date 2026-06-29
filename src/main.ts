@@ -8,37 +8,52 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // CORS
   app.enableCors({
-    origin: [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'https://mantec.portalmantec.com.br',
-    ],
+    origin: true,
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Origin',
+      'X-Requested-With',
+      'Content-Type',
+      'Accept',
+      'Authorization',
+    ],
+    exposedHeaders: ['Authorization'],
+    optionsSuccessStatus: 204,
   });
 
+  // Validação global
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: false,
     }),
   );
 
+  // Arquivos estáticos
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });
 
+  // Swagger
   const config = new DocumentBuilder()
     .setTitle('Mantec3 API')
     .setDescription('API para o sistema Mantec3')
     .setVersion('1.0')
     .build();
+
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
-  //await app.listen(3000);
-
+  // Inicialização
   await app.listen(3000, '0.0.0.0');
+
+  console.log(`🚀 API rodando em http://0.0.0.0:3000`);
 }
+
 bootstrap();
 /*
 import { ValidationPipe } from '@nestjs/common';
