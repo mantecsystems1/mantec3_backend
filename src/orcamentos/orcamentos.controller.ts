@@ -9,7 +9,6 @@ import { UpdateItensOrcamentoDto } from './dto/update-itens-orcamento.dto';
 export class OrcamentosController {
   constructor(private readonly orcamentosService: OrcamentosService) {}
 
-  // Orcamento routes
   @Post()
   create(@Body() createOrcamentoDto: CreateOrcamentoDto) {
     return this.orcamentosService.create(createOrcamentoDto);
@@ -20,22 +19,6 @@ export class OrcamentosController {
     return this.orcamentosService.findAll();
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.orcamentosService.findOne(id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateOrcamentoDto: UpdateOrcamentoDto) {
-    return this.orcamentosService.update(id, updateOrcamentoDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.orcamentosService.remove(id);
-  }
-
-  // ItensOrcamento routes
   @Post('itens')
   createItem(@Body() createItensOrcamentoDto: CreateItensOrcamentoDto) {
     return this.orcamentosService.createItem(createItensOrcamentoDto);
@@ -59,5 +42,25 @@ export class OrcamentosController {
   @Delete('itens/:id')
   removeItem(@Param('id') id: string) {
     return this.orcamentosService.removeItem(id);
+  }
+
+  @Get(':id/itens')
+  findItemsByOrcamento(@Param('id') id: string) {
+    return this.orcamentosService.findItemsByOrcamento(id);
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.orcamentosService.findOne(id);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateOrcamentoDto: UpdateOrcamentoDto) {
+    return this.orcamentosService.update(id, updateOrcamentoDto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.orcamentosService.remove(id);
   }
 }

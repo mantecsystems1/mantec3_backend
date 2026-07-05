@@ -19,13 +19,13 @@ export class OrcamentosService {
   create(createOrcamentoDto: CreateOrcamentoDto) {
     const orcamentoData: any = { ...createOrcamentoDto };
     if (createOrcamentoDto.subtotal) {
-      orcamentoData.subtotal = Types.Decimal128.fromString(createOrcamentoDto.subtotal);
+      orcamentoData.subtotal = Types.Decimal128.fromString(String(createOrcamentoDto.subtotal));
     }
     if (createOrcamentoDto.descontos) {
-      orcamentoData.descontos = Types.Decimal128.fromString(createOrcamentoDto.descontos);
+      orcamentoData.descontos = Types.Decimal128.fromString(String(createOrcamentoDto.descontos));
     }
     if (createOrcamentoDto.total) {
-      orcamentoData.total = Types.Decimal128.fromString(createOrcamentoDto.total);
+      orcamentoData.total = Types.Decimal128.fromString(String(createOrcamentoDto.total));
     }
     const createdOrcamento = new this.orcamentoModel(orcamentoData);
     return createdOrcamento.save();
@@ -54,13 +54,13 @@ export class OrcamentosService {
   update(id: string, updateOrcamentoDto: UpdateOrcamentoDto) {
     const updateData: any = { ...updateOrcamentoDto };
     if (updateOrcamentoDto.subtotal) {
-      updateData.subtotal = Types.Decimal128.fromString(updateOrcamentoDto.subtotal);
+      updateData.subtotal = Types.Decimal128.fromString(String(updateOrcamentoDto.subtotal));
     }
     if (updateOrcamentoDto.descontos) {
-      updateData.descontos = Types.Decimal128.fromString(updateOrcamentoDto.descontos);
+      updateData.descontos = Types.Decimal128.fromString(String(updateOrcamentoDto.descontos));
     }
     if (updateOrcamentoDto.total) {
-      updateData.total = Types.Decimal128.fromString(updateOrcamentoDto.total);
+      updateData.total = Types.Decimal128.fromString(String(updateOrcamentoDto.total));
     }
     return this.orcamentoModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
   }
@@ -73,10 +73,10 @@ export class OrcamentosService {
   createItem(createItensOrcamentoDto: CreateItensOrcamentoDto) {
     const itemData: any = { ...createItensOrcamentoDto };
     if (createItensOrcamentoDto.valorUnitario) {
-      itemData.valorUnitario = Types.Decimal128.fromString(createItensOrcamentoDto.valorUnitario);
+      itemData.valorUnitario = Types.Decimal128.fromString(String(createItensOrcamentoDto.valorUnitario));
     }
     if (createItensOrcamentoDto.totalItem) {
-      itemData.totalItem = Types.Decimal128.fromString(createItensOrcamentoDto.totalItem);
+      itemData.totalItem = Types.Decimal128.fromString(String(createItensOrcamentoDto.totalItem));
     }
     const createdItem = new this.itensOrcamentoModel(itemData);
     return createdItem.save();
@@ -86,6 +86,10 @@ export class OrcamentosService {
     return this.itensOrcamentoModel.find().exec();
   }
 
+  findItemsByOrcamento(orcamentoId: string) {
+    return this.itensOrcamentoModel.find({ orcamentoId }).exec();
+  }
+
   findOneItem(id: string) {
     return this.itensOrcamentoModel.findById(id).exec();
   }
@@ -93,10 +97,10 @@ export class OrcamentosService {
   updateItem(id: string, updateItensOrcamentoDto: UpdateItensOrcamentoDto) {
     const updateData: any = { ...updateItensOrcamentoDto };
     if (updateItensOrcamentoDto.valorUnitario) {
-      updateData.valorUnitario = Types.Decimal128.fromString(updateItensOrcamentoDto.valorUnitario);
+      updateData.valorUnitario = Types.Decimal128.fromString(String(updateItensOrcamentoDto.valorUnitario));
     }
     if (updateItensOrcamentoDto.totalItem) {
-      updateData.totalItem = Types.Decimal128.fromString(updateItensOrcamentoDto.totalItem);
+      updateData.totalItem = Types.Decimal128.fromString(String(updateItensOrcamentoDto.totalItem));
     }
     return this.itensOrcamentoModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
   }
