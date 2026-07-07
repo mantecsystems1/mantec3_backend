@@ -9,7 +9,13 @@ export class ServicosController {
 
   @Post()
   create(@Body() createServicoDto: CreateServicoDto) {
-    return this.servicosService.create(createServicoDto);
+    console.log('Request body /servicos:', createServicoDto);
+    try {
+      return this.servicosService.create(createServicoDto);
+    } catch (err) {
+      console.error('Erro no controller createServico:', err);
+      throw err;
+    }
   }
 
   @Get()
