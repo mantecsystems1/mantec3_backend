@@ -14,8 +14,9 @@ export class ItensPedidoCompra {
   @Prop({ required: true })
   quantidade: number;
 
-  @Prop({ type: MongooseSchema.Types.Decimal128, required: true })
-  valorUnitario: Types.Decimal128;
+  // Accept Mixed so controller/service can accept string/number/Decimal128 and convert as needed
+  @Prop({ type: MongooseSchema.Types.Mixed, required: true })
+  valorUnitario: any;
 }
 
 export const ItensPedidoCompraSchema = SchemaFactory.createForClass(ItensPedidoCompra);

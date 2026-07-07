@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Fornecedor, FornecedorDocument } from './schemas/fornecedor.schema';
@@ -21,8 +21,14 @@ export class ComprasService {
 
   // Fornecedor CRUD
   createFornecedor(createFornecedorDto: CreateFornecedorDto) {
-    const createdFornecedor = new this.fornecedorModel(createFornecedorDto);
-    return createdFornecedor.save();
+    try {
+      console.log('CreateFornecedor DTO recebido:', createFornecedorDto);
+      const createdFornecedor = new this.fornecedorModel(createFornecedorDto);
+      return createdFornecedor.save();
+    } catch (error) {
+      console.error('Erro ao criar fornecedor:', error);
+      throw error;
+    }
   }
 
   findAllFornecedores() {
@@ -43,22 +49,28 @@ export class ComprasService {
 
   // PedidosCompra CRUD
   async createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto & { itens?: Omit<CreateItensPedidoCompraDto, 'pedidoCompraId'>[] }) {
-    const { itens = [], ...pedidoDto } = createPedidoCompraDto;
-    const createdPedidoCompra = await new this.pedidosCompraModel(pedidoDto).save();
-    const pedidoCompraId = String(createdPedidoCompra._id);
+    try {
+      console.log('CreatePedidoCompra DTO recebido:', createPedidoCompraDto);
+      const { itens = [], ...pedidoDto } = createPedidoCompraDto;
+      const createdPedidoCompra = await new this.pedidosCompraModel(pedidoDto).save();
+      const pedidoCompraId = String(createdPedidoCompra._id);
 
-    if (itens.length > 0) {
-      await Promise.all(
-        itens.map((item) =>
-          this.createItensPedidoCompra({
-            ...item,
-            pedidoCompraId,
-          }),
-        ),
-      );
+      if (itens.length > 0) {
+        await Promise.all(
+          itens.map((item) =>
+            this.createItensPedidoCompra({
+              ...item,
+              pedidoCompraId,
+            }),
+          ),
+        );
+      }
+
+      return this.findOnePedidoCompra(pedidoCompraId);
+    } catch (error) {
+      console.error('Erro ao criar pedido de compra:', error);
+      throw error;
     }
-
-    return this.findOnePedidoCompra(pedidoCompraId);
   }
 
   async findAllPedidosCompra() {
@@ -93,12 +105,29 @@ export class ComprasService {
 
   // ItensPedidoCompra CRUD
   createItensPedidoCompra(createItensPedidoCompraDto: CreateItensPedidoCompraDto) {
-    const itemData: any = { ...createItensPedidoCompraDto };
-    if (createItensPedidoCompraDto.valorUnitario) {
-      itemData.valorUnitario = Types.Decimal128.fromString(createItensPedidoCompraDto.valorUnitario);
+    try {
+      const itemData: any = { ...createItensPedidoCompraDto };
+      if (
+        createItensPedidoCompraDto.valorUnitario !== undefined &&
+        createItensPedidoCompraDto.valorUnitario !== null &&
+        createItensPedidoCompraDto.valorUnitario !== ''
+      ) {
+        try {
+          const precoStr = String(createItensPedidoCompraDto.valorUnitario).replace(',', '.');
+          if (!/^-?\d+(\.\d+)?$/.test(precoStr)) {
+            throw new Error('Formato inválido para valorUnitario');
+          }
+          itemData.valorUnitario = Types.Decimal128.fromString(precoStr);
+        } catch (err) {
+          throw new BadRequestException('valorUnitario inválido');
+        }
+      }
+      const createdItem = new this.itensPedidoCompraModel(itemData);
+      return createdItem.save();
+    } catch (error) {
+      console.error('Erro ao criar item do pedido de compra:', error);
+      throw error;
     }
-    const createdItem = new this.itensPedidoCompraModel(itemData);
-    return createdItem.save();
   }
 
   findAllItensPedidoCompra() {
