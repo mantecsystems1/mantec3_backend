@@ -32,8 +32,25 @@ export class ComprasService {
             throw new BadRequestException('Fornecedor com este CNPJ já existe');
           }
           const payload: any = { ...createFornecedorDto, cnpj: normalizedCnpj };
+          // ensure empresaId is an ObjectId when possible
+          try {
+            if (payload.empresaId && typeof payload.empresaId === 'string' && payload.empresaId.length === 24) {
+              payload.empresaId = Types.ObjectId(payload.empresaId);
+            }
+          } catch (e) {
+            // ignore casting errors; mongoose will validate
+          }
+
           const createdFornecedor = new this.fornecedorModel(payload);
-          return createdFornecedor.save();
+          return createdFornecedor.save().catch((err: any) => {
+            // Mongo duplicate key
+            if (err && (err.code === 11000 || err.code === 11001)) {
+              throw new BadRequestException('Fornecedor com este CNPJ já existe');
+            }
+            console.error('Erro ao salvar fornecedor (mongo):', err);
+            // rethrow to be handled by Nest exception filters
+            throw err;
+          });
         });
     } catch (error) {
       console.error('Erro ao criar fornecedor:', error);
