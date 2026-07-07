@@ -1,5 +1,5 @@
 // dto/create-ordem-servico.dto.ts
-import { IsString, IsOptional, IsDateString, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsISO8601, IsDateString } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class CreateOrdemServicoDto {
@@ -25,12 +25,13 @@ export class CreateOrdemServicoDto {
   @IsEnum(['baixa', 'normal', 'alta', 'urgente'])
   prioridade!: string;
 
-  @IsDateString()
-  @Transform(({ value }) => new Date(value))
+  // Mudança principal aqui:
+  @IsISO8601({ strict: false })           // Mais flexível que @IsDateString
+  @Transform(({ value }) => value ? new Date(value) : value)
   dataEntrada!: Date;
 
   @IsOptional()
-  @IsDateString()
+  @IsISO8601({ strict: false })
   @Transform(({ value }) => value ? new Date(value) : undefined)
   dataConclusao?: Date;
 }
