@@ -14,8 +14,8 @@ export class Servico {
   @Prop()
   descricao: string;
 
-  @Prop({ type: MongooseSchema.Types.Decimal128 })
-  precoPadrao: Types.Decimal128;
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  precoPadrao: any;
 
   @Prop()
   tempoEstimado: number;
