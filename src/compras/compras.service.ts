@@ -23,8 +23,18 @@ export class ComprasService {
   createFornecedor(createFornecedorDto: CreateFornecedorDto) {
     try {
       console.log('CreateFornecedor DTO recebido:', createFornecedorDto);
-      const createdFornecedor = new this.fornecedorModel(createFornecedorDto);
-      return createdFornecedor.save();
+      const normalizedCnpj = String(createFornecedorDto.cnpj).replace(/[^0-9]/g, '');
+      // check for existing fornecedor with same cnpj for this company
+      return this.fornecedorModel
+        .findOne({ empresaId: createFornecedorDto.empresaId, cnpj: normalizedCnpj })
+        .then((existing) => {
+          if (existing) {
+            throw new BadRequestException('Fornecedor com este CNPJ já existe');
+          }
+          const payload: any = { ...createFornecedorDto, cnpj: normalizedCnpj };
+          const createdFornecedor = new this.fornecedorModel(payload);
+          return createdFornecedor.save();
+        });
     } catch (error) {
       console.error('Erro ao criar fornecedor:', error);
       throw error;
