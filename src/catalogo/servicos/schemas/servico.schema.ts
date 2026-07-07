@@ -25,3 +25,27 @@ export class Servico {
 }
 
 export const ServicoSchema = SchemaFactory.createForClass(Servico);
+
+ServicoSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    // Ensure precoPadrao is serialized as string and provide a numeric 'valor' field
+    if (ret.precoPadrao !== undefined && ret.precoPadrao !== null) {
+      try {
+        // If it's a Decimal128, toString() will return the decimal string
+        const precoStr = typeof ret.precoPadrao === 'object' && typeof ret.precoPadrao.toString === 'function'
+          ? ret.precoPadrao.toString()
+          : String(ret.precoPadrao);
+        ret.precoPadrao = precoStr;
+        const num = Number(precoStr);
+        ret.valor = Number.isNaN(num) ? null : num;
+      } catch (e) {
+        ret.precoPadrao = String(ret.precoPadrao);
+        ret.valor = null;
+      }
+    } else {
+      // no precoPadrao, ensure valor is null for consistency
+      ret.valor = ret.valor ?? null;
+    }
+    return ret;
+  },
+});
