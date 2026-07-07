@@ -14,7 +14,13 @@ export class ComprasController {
   // Fornecedor routes
   @Post('fornecedores')
   createFornecedor(@Body() createFornecedorDto: CreateFornecedorDto) {
-    return this.comprasService.createFornecedor(createFornecedorDto);
+    console.log('Request body /compras/fornecedores:', createFornecedorDto);
+    try {
+      return this.comprasService.createFornecedor(createFornecedorDto);
+    } catch (err) {
+      console.error('Erro no controller createFornecedor:', err);
+      throw err;
+    }
   }
 
   @Get('fornecedores')
