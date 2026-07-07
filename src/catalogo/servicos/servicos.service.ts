@@ -12,24 +12,30 @@ export class ServicosService {
   ) {}
 
   create(createServicoDto: CreateServicoDto) {
-    const servicoData: any = { ...createServicoDto };
-    if (
-      createServicoDto.precoPadrao !== undefined &&
-      createServicoDto.precoPadrao !== null &&
-      createServicoDto.precoPadrao !== ''
-    ) {
-      try {
-        const precoStr = String(createServicoDto.precoPadrao).replace(',', '.');
-        if (!/^-?\d+(\.\d+)?$/.test(precoStr)) {
-          throw new Error('Formato inválido para precoPadrao');
+    try {
+      console.log('CreateServico DTO recebido:', createServicoDto);
+      const servicoData: any = { ...createServicoDto };
+      if (
+        createServicoDto.precoPadrao !== undefined &&
+        createServicoDto.precoPadrao !== null &&
+        createServicoDto.precoPadrao !== ''
+      ) {
+        try {
+          const precoStr = String(createServicoDto.precoPadrao).replace(',', '.');
+          if (!/^-?\d+(\.\d+)?$/.test(precoStr)) {
+            throw new Error('Formato inválido para precoPadrao');
+          }
+          servicoData.precoPadrao = Types.Decimal128.fromString(precoStr);
+        } catch (err) {
+          throw new BadRequestException('precoPadrao inválido');
         }
-        servicoData.precoPadrao = Types.Decimal128.fromString(precoStr);
-      } catch (err) {
-        throw new BadRequestException('precoPadrao inválido');
       }
+      const createdServico = new this.servicoModel(servicoData);
+      return createdServico.save();
+    } catch (error) {
+      console.error('Erro ao criar servico:', error);
+      throw error;
     }
-    const createdServico = new this.servicoModel(servicoData);
-    return createdServico.save();
   }
 
   findAll() {
