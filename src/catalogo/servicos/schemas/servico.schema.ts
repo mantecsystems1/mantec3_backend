@@ -27,7 +27,7 @@ export class Servico {
 export const ServicoSchema = SchemaFactory.createForClass(Servico);
 
 ServicoSchema.set('toJSON', {
-  transform: (_doc, ret) => {
+  transform: (_doc: any, ret: any) => {
     // Ensure precoPadrao is serialized as string and provide a numeric 'valor' field
     if (ret.precoPadrao !== undefined && ret.precoPadrao !== null) {
       try {
@@ -44,7 +44,7 @@ ServicoSchema.set('toJSON', {
       }
     } else {
       // no precoPadrao, ensure valor is null for consistency
-      ret.valor = ret.valor ?? null;
+      ret.valor = ret.valor !== undefined ? ret.valor : null;
     }
     return ret;
   },
