@@ -1,6 +1,5 @@
 // dto/create-ordem-servico.dto.ts
-import { IsString, IsOptional, IsEnum, IsISO8601, IsDateString } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { IsString, IsOptional, IsEnum, IsDateString } from 'class-validator';
 
 export class CreateOrdemServicoDto {
   @IsString()
@@ -25,13 +24,11 @@ export class CreateOrdemServicoDto {
   @IsEnum(['baixa', 'normal', 'alta', 'urgente'])
   prioridade!: string;
 
-  // Mudança principal aqui:
-  @IsISO8601({ strict: false })           // Mais flexível que @IsDateString
-  @Transform(({ value }) => value ? new Date(value) : value)
-  dataEntrada!: Date;
+  // Aceitar string ISO 8601 e deixar o Mongoose converter para Date ao salvar
+  @IsDateString()
+  dataEntrada!: string;
 
   @IsOptional()
-  @IsISO8601({ strict: false })
-  @Transform(({ value }) => value ? new Date(value) : undefined)
-  dataConclusao?: Date;
+  @IsDateString()
+  dataConclusao?: string;
 }
