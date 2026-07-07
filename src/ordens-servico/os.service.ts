@@ -13,12 +13,19 @@ export class OsService {
   constructor(
     @InjectModel(OrdemServico.name) private ordemServicoModel: Model<OrdemServicoDocument>,
     @InjectModel(ItensUtilizadosOS.name) private itensUtilizadosOSModel: Model<ItensUtilizadosOSDocument>,
-  ) {}
+  ) { }
 
   // OrdemServico CRUD
   create(createOrdemServicoDto: CreateOrdemServicoDto) {
-    const createdOrdemServico = new this.ordemServicoModel(createOrdemServicoDto);
-    return createdOrdemServico.save();
+    try {
+      console.log(' DTO recebido:', createOrdemServicoDto); // ← importante para debug
+
+      const createdOrdemServico = new this.ordemServicoModel(createOrdemServicoDto);
+      return createdOrdemServico.save();
+    } catch (error) {
+      console.error('Erro ao criar OS:', error);
+      throw error;
+    }
   }
 
   findAll() {

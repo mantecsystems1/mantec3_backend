@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UsePipes, ValidationPipe } from '@nestjs/common';
 import { OsService } from './os.service';
 import { CreateOrdemServicoDto } from './dto/create-ordem-servico.dto';
 import { UpdateOrdemServicoDto } from './dto/update-ordem-servico.dto';
@@ -9,11 +9,13 @@ import { UpdateItensUtilizadosOSDto } from './dto/update-itens-utilizados-os.dto
 export class OsController {
   constructor(private readonly osService: OsService) {}
 
-  // OrdemServico routes
   @Post()
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   create(@Body() createOrdemServicoDto: CreateOrdemServicoDto) {
     return this.osService.create(createOrdemServicoDto);
   }
+
+  // OrdemServico routes
 
   @Get()
   findAll() {
