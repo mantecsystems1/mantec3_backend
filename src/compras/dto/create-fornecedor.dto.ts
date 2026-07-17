@@ -1,13 +1,23 @@
-import { IsString, IsOptional, IsBoolean } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsMongoId,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreateFornecedorDto {
-  @IsString()
+  @IsMongoId()
+  @IsNotEmpty()
   empresaId: string;
 
   @IsString()
+  @IsNotEmpty()
   nome: string;
 
   @IsString()
+  @IsNotEmpty()
   cnpj: string;
 
   @IsOptional()
@@ -19,7 +29,7 @@ export class CreateFornecedorDto {
   whatsapp?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail()
   email?: string;
 
   @IsOptional()
