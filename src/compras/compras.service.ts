@@ -70,30 +70,47 @@ export class ComprasService {
   }
 
   // PedidosCompra CRUD
-  async createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto & { itens?: Omit<CreateItensPedidoCompraDto, 'pedidoCompraId'>[] }) {
-    try {
-      console.log('CreatePedidoCompra DTO recebido:', createPedidoCompraDto);
-      const { itens = [], ...pedidoDto } = createPedidoCompraDto;
-      const createdPedidoCompra = await new this.pedidosCompraModel(pedidoDto).save();
-      const pedidoCompraId = String(createdPedidoCompra._id);
+async createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto) {
+  try {
+    console.log(
+      'DTO recebido:\n',
+      JSON.stringify(createPedidoCompraDto, null, 2),
+    );
 
-      if (itens.length > 0) {
-        await Promise.all(
-          itens.map((item) =>
-            this.createItensPedidoCompra({
-              ...item,
-              pedidoCompraId,
-            }),
-          ),
-        );
+    const {
+      itens = [],
+      ...pedidoDto
+    } = createPedidoCompraDto;
+
+    console.log('Itens recebidos:', itens);
+
+    const pedido = await this.pedidosCompraModel.create({
+      ...pedidoDto,
+    });
+
+    console.log('Pedido criado:', pedido._id);
+
+    if (Array.isArray(itens) && itens.length > 0) {
+      for (const item of itens) {
+        console.log('Salvando item:', item);
+
+        await this.createItensPedidoCompra({
+          pedidoCompraId: pedido._id.toString(),
+          produtoId: item.produtoId,
+          quantidade: Number(item.quantidade),
+          valorUnitario: String(item.valorUnitario),
+        });
       }
-
-      return this.findOnePedidoCompra(pedidoCompraId);
-    } catch (error) {
-      console.error('Erro ao criar pedido de compra:', error);
-      throw error;
+    } else {
+      console.warn('Nenhum item recebido para este pedido.');
     }
+
+    return this.findOnePedidoCompra(pedido._id.toString());
+  } catch (error) {
+    console.error('Erro ao criar pedido de compra:', error);
+    throw error;
   }
+}
 
   async findAllPedidosCompra() {
     const pedidos = await this.pedidosCompraModel
