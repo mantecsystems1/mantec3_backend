@@ -3,7 +3,14 @@ import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type PedidosCompraDocument = PedidosCompra & Document;
 
-@Schema({ collection: 'pedidosCompra', timestamps: { createdAt: 'criadoEm' } })
+@Schema({
+  collection: 'pedidosCompra',
+  timestamps: {
+    createdAt: 'criadoEm',
+    updatedAt: 'updatedAt',
+  },
+})
+
 export class PedidosCompra {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Empresa', required: true })
   empresaId: Types.ObjectId;

@@ -3,20 +3,38 @@ import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type ItensPedidoCompraDocument = ItensPedidoCompra & Document;
 
-@Schema({ collection: 'itensPedidoCompra' })
+@Schema({
+  collection: 'itensPedidoCompra',
+  timestamps: true,
+})
 export class ItensPedidoCompra {
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'PedidosCompra', required: true })
+
+  @Prop({
+    type: MongooseSchema.Types.ObjectId,
+    ref: 'PedidosCompra',
+    required: true,
+  })
   pedidoCompraId: Types.ObjectId;
 
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Produto', required: true })
+  @Prop({
+    type: MongooseSchema.Types.ObjectId,
+    ref: 'Produto',
+    required: true,
+  })
   produtoId: Types.ObjectId;
 
-  @Prop({ required: true })
+  @Prop({
+    required: true,
+    default: 1,
+  })
   quantidade: number;
 
-  // Accept Mixed so controller/service can accept string/number/Decimal128 and convert as needed
-  @Prop({ type: MongooseSchema.Types.Mixed, required: true })
-  valorUnitario: any;
+  @Prop({
+    type: MongooseSchema.Types.Decimal128,
+    required: true,
+  })
+  valorUnitario: Types.Decimal128;
 }
 
-export const ItensPedidoCompraSchema = SchemaFactory.createForClass(ItensPedidoCompra);
+export const ItensPedidoCompraSchema =
+  SchemaFactory.createForClass(ItensPedidoCompra);

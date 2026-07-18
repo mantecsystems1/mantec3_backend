@@ -5,8 +5,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CreateItensPedidoCompraDto } from './create-itens-pedido-compra.dto';
-
+import { CreatePedidoCompraItemDto } from './create-pedido-compra-item.dto';
 export class CreatePedidoCompraDto {
   @IsString()
   empresaId: string;
@@ -24,6 +23,6 @@ export class CreatePedidoCompraDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => CreateItensPedidoCompraDto)
-  itens?: CreateItensPedidoCompraDto[];
+  @Type(() => CreatePedidoCompraItemDto)
+  itens?: CreatePedidoCompraItemDto[];
 }

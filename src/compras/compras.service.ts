@@ -70,47 +70,45 @@ export class ComprasService {
   }
 
   // PedidosCompra CRUD
-async createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto) {
-  try {
-    console.log(
-      'DTO recebido:\n',
-      JSON.stringify(createPedidoCompraDto, null, 2),
-    );
+  async createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto) {
+    try {
+      console.log(
+        'DTO recebido:\n',
+        JSON.stringify(createPedidoCompraDto, null, 2),
+      );
 
-    const {
-      itens = [],
-      ...pedidoDto
-    } = createPedidoCompraDto;
+      const { itens = [], ...pedidoDto } = createPedidoCompraDto;
 
-    console.log('Itens recebidos:', itens);
+      console.log('Itens recebidos:', itens);
 
-    const pedido = await this.pedidosCompraModel.create({
-      ...pedidoDto,
-    });
+      // Cria o pedido
+      const pedido = await this.pedidosCompraModel.create(pedidoDto);
 
-    console.log('Pedido criado:', pedido._id);
+      console.log('Pedido criado:', pedido._id);
 
-    if (Array.isArray(itens) && itens.length > 0) {
-      for (const item of itens) {
-        console.log('Salvando item:', item);
+      // Salva os itens
+      if (Array.isArray(itens) && itens.length > 0) {
+        for (const item of itens) {
+          console.log('Salvando item:', item);
 
-        await this.createItensPedidoCompra({
-          pedidoCompraId: pedido._id.toString(),
-          produtoId: item.produtoId,
-          quantidade: Number(item.quantidade),
-          valorUnitario: String(item.valorUnitario),
-        });
+          await this.createItensPedidoCompra({
+            pedidoCompraId: pedido._id.toString(),
+            produtoId: String(item.produtoId),
+            quantidade: Number(item.quantidade),
+            valorUnitario: String(item.valorUnitario),
+          });
+        }
+      } else {
+        console.warn('Nenhum item recebido para este pedido.');
       }
-    } else {
-      console.warn('Nenhum item recebido para este pedido.');
-    }
 
-    return this.findOnePedidoCompra(pedido._id.toString());
-  } catch (error) {
-    console.error('Erro ao criar pedido de compra:', error);
-    throw error;
+      // Retorna o pedido completo com itens
+      return await this.findOnePedidoCompra(pedido._id.toString());
+    } catch (error) {
+      console.error('Erro ao criar pedido de compra:', error);
+      throw error;
+    }
   }
-}
 
   async findAllPedidosCompra() {
     const pedidos = await this.pedidosCompraModel

@@ -10,7 +10,6 @@ export class CreateItensPedidoCompraDto {
   @IsNumber()
   quantidade: number;
 
-  // frontend may send number-as-string
   @IsNumberString()
   valorUnitario: string;
 }
