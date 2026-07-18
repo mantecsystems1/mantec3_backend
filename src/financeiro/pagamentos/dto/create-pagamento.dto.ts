@@ -1,6 +1,15 @@
+import { IsString } from 'class-validator';
+
 export class CreatePagamentoDto {
+  @IsString()
   vendaId: string;
+
+  @IsString()
   formaPagamento: string;
+
+  @IsString()
   valor: string;
-  dataPagamento: Date;
+
+  @IsString()
+  dataPagamento: string;
 }
