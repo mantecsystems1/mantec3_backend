@@ -17,11 +17,23 @@ export class NotaFiscalServicoService {
   }
 
   findAll() {
-    return this.notaFiscalServicoModel.find().exec();
+    return this.notaFiscalServicoModel
+      .find()
+      .populate({
+        path: 'vendaId',
+        populate: { path: 'clienteId', select: 'nome cpfCnpj' },
+      })
+      .exec();
   }
 
   findOne(id: string) {
-    return this.notaFiscalServicoModel.findById(id).exec();
+    return this.notaFiscalServicoModel
+      .findById(id)
+      .populate({
+        path: 'vendaId',
+        populate: { path: 'clienteId', select: 'nome cpfCnpj' },
+      })
+      .exec();
   }
 
   update(id: string, updateNotaFiscalServicoDto: UpdateNotaFiscalServicoDto) {

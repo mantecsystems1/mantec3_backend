@@ -17,11 +17,17 @@ export class EstoqueService {
   }
 
   findAll() {
-    return this.movimentosEstoqueModel.find().exec();
+    return this.movimentosEstoqueModel
+      .find()
+      .populate('produtoId', 'nome codigoInterno precoVenda')
+      .exec();
   }
 
   findOne(id: string) {
-    return this.movimentosEstoqueModel.findById(id).exec();
+    return this.movimentosEstoqueModel
+      .findById(id)
+      .populate('produtoId', 'nome codigoInterno precoVenda')
+      .exec();
   }
 
   update(id: string, updateMovimentoEstoqueDto: UpdateMovimentoEstoqueDto) {

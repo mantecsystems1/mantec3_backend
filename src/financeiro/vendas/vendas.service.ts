@@ -16,41 +16,86 @@ export class VendasService {
   ) {}
 
   // Venda CRUD
-  create(createVendaDto: CreateVendaDto) {
-    const vendaData: any = { ...createVendaDto };
-    if (createVendaDto.subtotal) {
-      vendaData.subtotal = Types.Decimal128.fromString(createVendaDto.subtotal);
+  async create(createVendaDto: CreateVendaDto) {
+    const { itens = [], ...dto } = createVendaDto;
+    const vendaData: any = { ...dto };
+    if (dto.subtotal) {
+      vendaData.subtotal = Types.Decimal128.fromString(dto.subtotal);
     }
-    if (createVendaDto.descontos) {
-      vendaData.descontos = Types.Decimal128.fromString(createVendaDto.descontos);
+    if (dto.descontos) {
+      vendaData.descontos = Types.Decimal128.fromString(dto.descontos);
     }
-    if (createVendaDto.total) {
-      vendaData.total = Types.Decimal128.fromString(createVendaDto.total);
+    if (dto.total) {
+      vendaData.total = Types.Decimal128.fromString(dto.total);
     }
     const createdVenda = new this.vendaModel(vendaData);
-    return createdVenda.save();
+    await createdVenda.save();
+
+    if (Array.isArray(itens) && itens.length > 0) {
+      for (const item of itens) {
+        await this.createItem({
+          vendaId: createdVenda._id.toString(),
+          tipo: item.tipo,
+          referenciaId: item.referenciaId,
+          quantidade: Number(item.quantidade),
+          valorUnitario: String(item.valorUnitario),
+          totalItem: String(item.totalItem),
+        });
+      }
+    }
+
+    return this.findOne(createdVenda._id.toString());
   }
 
-  findAll() {
-    return this.vendaModel.find().exec();
+  async findAll() {
+    const vendas = await this.vendaModel
+      .find()
+      .populate('clienteId', 'nome cpfCnpj email')
+      .lean()
+      .exec();
+    return Promise.all(vendas.map((venda) => this.attachItensVenda(venda)));
   }
 
-  findOne(id: string) {
-    return this.vendaModel.findById(id).exec();
+  async findOne(id: string) {
+    const venda = await this.vendaModel
+      .findById(id)
+      .populate('clienteId', 'nome cpfCnpj email')
+      .lean()
+      .exec();
+    return venda ? this.attachItensVenda(venda) : null;
   }
 
-  update(id: string, updateVendaDto: UpdateVendaDto) {
-    const updateData: any = { ...updateVendaDto };
-    if (updateVendaDto.subtotal) {
-      updateData.subtotal = Types.Decimal128.fromString(updateVendaDto.subtotal);
+  async update(id: string, updateVendaDto: UpdateVendaDto) {
+    const { itens, ...dto } = updateVendaDto;
+    const updateData: any = { ...dto };
+    if (dto.subtotal) {
+      updateData.subtotal = Types.Decimal128.fromString(dto.subtotal);
     }
-    if (updateVendaDto.descontos) {
-      updateData.descontos = Types.Decimal128.fromString(updateVendaDto.descontos);
+    if (dto.descontos) {
+      updateData.descontos = Types.Decimal128.fromString(dto.descontos);
     }
-    if (updateVendaDto.total) {
-      updateData.total = Types.Decimal128.fromString(updateVendaDto.total);
+    if (dto.total) {
+      updateData.total = Types.Decimal128.fromString(dto.total);
     }
-    return this.vendaModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
+    await this.vendaModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
+
+    if (itens !== undefined) {
+      await this.itensVendaModel.deleteMany({ vendaId: id });
+      if (Array.isArray(itens) && itens.length > 0) {
+        for (const item of itens) {
+          await this.createItem({
+            vendaId: id,
+            tipo: item.tipo,
+            referenciaId: item.referenciaId,
+            quantidade: Number(item.quantidade),
+            valorUnitario: String(item.valorUnitario),
+            totalItem: String(item.totalItem),
+          });
+        }
+      }
+    }
+
+    return this.findOne(id);
   }
 
   remove(id: string) {
@@ -91,5 +136,46 @@ export class VendasService {
 
   removeItem(id: string) {
     return this.itensVendaModel.findByIdAndDelete(id).exec();
+  }
+
+  private async attachItensVenda(venda: any) {
+    const itens = await this.itensVendaModel
+      .find({ vendaId: venda._id })
+      .lean()
+      .exec();
+
+    const populatedItens = await Promise.all(
+      itens.map(async (item: any) => {
+        let referenciaDetails: any = null;
+        try {
+          if (item.tipo === 'produto') {
+            referenciaDetails = await this.vendaModel.db
+              .model('Produto')
+              .findById(item.referenciaId)
+              .select('nome codigoInterno')
+              .lean()
+              .exec();
+          } else if (item.tipo === 'servico') {
+            referenciaDetails = await this.vendaModel.db
+              .model('Servico')
+              .findById(item.referenciaId)
+              .select('nome')
+              .lean()
+              .exec();
+          }
+        } catch (e) {
+          console.error('Erro ao popular item de venda:', e);
+        }
+        return {
+          ...item,
+          referencia: referenciaDetails,
+        };
+      })
+    );
+
+    return {
+      ...venda,
+      itens: populatedItens,
+    };
   }
 }
