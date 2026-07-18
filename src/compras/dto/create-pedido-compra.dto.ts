@@ -1,4 +1,11 @@
-import { IsString, IsOptional } from 'class-validator';
+import {
+  IsArray,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { CreateItensPedidoCompraDto } from './create-itens-pedido-compra.dto';
 
 export class CreatePedidoCompraDto {
   @IsString()
@@ -13,4 +20,10 @@ export class CreatePedidoCompraDto {
   @IsOptional()
   @IsString()
   observacoes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateItensPedidoCompraDto)
+  itens?: CreateItensPedidoCompraDto[];
 }
