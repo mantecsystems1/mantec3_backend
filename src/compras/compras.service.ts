@@ -17,45 +17,40 @@ export class ComprasService {
     @InjectModel(Fornecedor.name) private fornecedorModel: Model<FornecedorDocument>,
     @InjectModel(PedidosCompra.name) private pedidosCompraModel: Model<PedidosCompraDocument>,
     @InjectModel(ItensPedidoCompra.name) private itensPedidoCompraModel: Model<ItensPedidoCompraDocument>,
-  ) {}
+  ) { }
 
   // Fornecedor CRUD
-  createFornecedor(createFornecedorDto: CreateFornecedorDto) {
-    try {
-      console.log('CreateFornecedor DTO recebido:', createFornecedorDto);
-      const normalizedCnpj = String(createFornecedorDto.cnpj).replace(/[^0-9]/g, '');
-      // check for existing fornecedor with same cnpj for this company
-      return this.fornecedorModel
-        .findOne({ empresaId: createFornecedorDto.empresaId, cnpj: normalizedCnpj })
-        .then((existing) => {
-          if (existing) {
-            throw new BadRequestException('Fornecedor com este CNPJ já existe');
-          }
-          const payload: any = { ...createFornecedorDto, cnpj: normalizedCnpj };
-          // ensure empresaId is an ObjectId when possible
-          try {
-            if (payload.empresaId && typeof payload.empresaId === 'string' && payload.empresaId.length === 24) {
-              payload.empresaId = Types.ObjectId(payload.empresaId);
-            }
-          } catch (e) {
-            // ignore casting errors; mongoose will validate
-          }
+  async createFornecedor(createFornecedorDto: CreateFornecedorDto) {
+    console.log('CreateFornecedor DTO recebido:', createFornecedorDto);
 
-          const createdFornecedor = new this.fornecedorModel(payload);
-          return createdFornecedor.save().catch((err: any) => {
-            // Mongo duplicate key
-            if (err && (err.code === 11000 || err.code === 11001)) {
-              throw new BadRequestException('Fornecedor com este CNPJ já existe');
-            }
-            console.error('Erro ao salvar fornecedor (mongo):', err);
-            // rethrow to be handled by Nest exception filters
-            throw err;
-          });
-        });
-    } catch (error) {
-      console.error('Erro ao criar fornecedor:', error);
-      throw error;
+    const normalizedCnpj = createFornecedorDto.cnpj.replace(/\D/g, '');
+
+    const existing = await this.fornecedorModel.findOne({
+      empresaId: createFornecedorDto.empresaId,
+      cnpj: normalizedCnpj,
+    });
+
+    if (existing) {
+      throw new BadRequestException('Fornecedor com este CNPJ já existe');
     }
+
+    try {
+      const fornecedor = await this.fornecedorModel.create({
+        ...createFornecedorDto,
+        cnpj: normalizedCnpj,
+      });
+
+      return fornecedor;
+    } catch (err: any) {
+      console.error('Erro Mongo:', err);
+
+      if (err?.code === 11000) {
+        throw new BadRequestException('Fornecedor com este CNPJ já existe');
+      }
+
+      throw err;
+    }
+
   }
 
   findAllFornecedores() {
