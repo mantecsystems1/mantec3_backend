@@ -132,8 +132,40 @@ export class ComprasService {
     return pedido ? this.attachItensPedidoCompra(pedido) : null;
   }
 
-  updatePedidoCompra(id: string, updatePedidoCompraDto: UpdatePedidoCompraDto) {
-    return this.pedidosCompraModel.findByIdAndUpdate(id, updatePedidoCompraDto, { new: true }).exec();
+  async updatePedidoCompra(id: string, updatePedidoCompraDto: UpdatePedidoCompraDto) {
+    try {
+      const { itens, ...pedidoDto } = updatePedidoCompraDto;
+
+      // Update the main pedido document
+      const pedido = await this.pedidosCompraModel.findByIdAndUpdate(id, pedidoDto, { new: true }).exec();
+
+      if (!pedido) {
+        throw new BadRequestException('Pedido de compra não encontrado');
+      }
+
+      // If itens are provided, update them by deleting old and creating new
+      if (itens !== undefined) {
+        // Delete existing items
+        await this.itensPedidoCompraModel.deleteMany({ pedidoCompraId: id });
+
+        // Save new items
+        if (Array.isArray(itens) && itens.length > 0) {
+          for (const item of itens) {
+            await this.createItensPedidoCompra({
+              pedidoCompraId: id,
+              produtoId: String(item.produtoId),
+              quantidade: Number(item.quantidade),
+              valorUnitario: String(item.valorUnitario),
+            });
+          }
+        }
+      }
+
+      return await this.findOnePedidoCompra(id);
+    } catch (error) {
+      console.error('Erro ao atualizar pedido de compra:', error);
+      throw error;
+    }
   }
 
   removePedidoCompra(id: string) {
