@@ -20,9 +20,9 @@ export class CreateRecebimentoEquipamentoDto {
   @IsNotEmpty()
   modelo: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  imeiOuSerial: string;
+  imeiOuSerial?: string;
 
   @Type(() => Date)
   @IsDate()

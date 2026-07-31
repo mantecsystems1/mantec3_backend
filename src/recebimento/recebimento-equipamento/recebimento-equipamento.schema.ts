@@ -20,8 +20,8 @@ export class RecebimentoEquipamento {
   @Prop({ required: true })
   modelo: string;
 
-  @Prop({ required: true })
-  imeiOuSerial: string;
+  @Prop()
+  imeiOuSerial?: string;
 
   @Prop({ required: true })
   dataRecebimento: Date;
