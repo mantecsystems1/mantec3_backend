@@ -8,6 +8,7 @@ describe('OrcamentosController', () => {
   const createController = () => {
     const service = {
       update: jest.fn(),
+      gerarOrdemServico: jest.fn(),
     };
 
     return {
@@ -46,5 +47,14 @@ describe('OrcamentosController', () => {
     controller.cancelar('orc-1');
 
     expect(service.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.CANCELADO });
+  });
+
+  it('gera OS a partir do orcamento aprovado', () => {
+    const { controller, service } = createController();
+    const user = { id: 'user-1', _id: 'user-1', sub: 'user-1', nome: 'User', email: 'u@test.com', empresaId: 'emp-1' };
+
+    controller.gerarOrdemServico('orc-1', user);
+
+    expect(service.gerarOrdemServico).toHaveBeenCalledWith('orc-1', user);
   });
 });

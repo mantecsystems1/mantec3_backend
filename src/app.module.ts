@@ -22,6 +22,7 @@ import { ProdutosModule } from './catalogo/produtos/produtos.module';
 import { ServicosModule } from './catalogo/servicos/servicos.module';
 import { CompatibilidadeModule } from './catalogo/compatibilidade/compatibilidade.module';
 import { PortalClienteModule } from './portal-cliente/portal-cliente.module';
+import { DocumentosModule } from './documentos/documentos.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { PortalClienteModule } from './portal-cliente/portal-cliente.module';
     ServicosModule,
     CompatibilidadeModule,
     PortalClienteModule,
+    DocumentosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

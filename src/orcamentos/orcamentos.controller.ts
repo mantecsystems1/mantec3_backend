@@ -9,6 +9,8 @@ import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequireEvento, RequireEventoFromBody } from '../common/decorators/require-evento.decorator';
 import { EVENTOS_NEGOCIO } from '../permissoes/matriz-permissoes';
 import { ORCAMENTO_STATUS } from './state/orcamento.states';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { CurrentUserPayload } from '../common/decorators/current-user.decorator';
 
 @Controller('orcamentos')
 export class OrcamentosController {
@@ -93,6 +95,13 @@ export class OrcamentosController {
   @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_CANCELAR)
   cancelar(@Param('id') id: string) {
     return this.orcamentosService.update(id, { status: ORCAMENTO_STATUS.CANCELADO });
+  }
+
+  @Post(':id/gerar-os')
+  @UseGuards(AuthTokenGuard, PermissionGuard)
+  @RequireEvento(EVENTOS_NEGOCIO.OS_CRIAR)
+  gerarOrdemServico(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.orcamentosService.gerarOrdemServico(id, user);
   }
 
   @Patch(':id')

@@ -72,6 +72,17 @@ export class OsService {
       .exec();
   }
 
+  findByOrcamento(orcamentoId: string) {
+    return this.ordemServicoModel
+      .findOne({ orcamentoId })
+      .populate('empresaId', 'nomeFantasia razaoSocial')
+      .populate('clienteId', 'nome cpfCnpj')
+      .populate('tecnicoId', 'nome email perfil')
+      .populate('recebimentoEquipamentoId', 'tipoEquipamento marca modelo imeiOuSerial')
+      .populate('orcamentoId', 'total status validade')
+      .exec();
+  }
+
   async update(id: string, updateOrdemServicoDto: UpdateOrdemServicoDto) {
     const ordemServico = await this.ordemServicoModel.findById(id).exec();
     if (!ordemServico) {

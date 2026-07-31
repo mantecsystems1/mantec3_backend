@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Orcamento, OrcamentoDocument } from './schemas/orcamento.schema';
@@ -11,6 +11,9 @@ import { assertCanEditOrcamento, assertCanTransitionOrcamento } from './state/or
 import { ORCAMENTO_STATUS, isOrcamentoStatus } from './state/orcamento.states';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
+import { CurrentUserPayload } from '../common/decorators/current-user.decorator';
+import { OsService } from '../ordens-servico/os.service';
+import { OS_STATUS } from '../ordens-servico/state/os.states';
 
 @Injectable()
 export class OrcamentosService {
@@ -18,6 +21,7 @@ export class OrcamentosService {
     @InjectModel(Orcamento.name) private orcamentoModel: Model<OrcamentoDocument>,
     @InjectModel(ItensOrcamento.name) private itensOrcamentoModel: Model<ItensOrcamentoDocument>,
     private readonly auditoriaService: AuditoriaService,
+    private readonly osService: OsService,
   ) {}
 
   async create(createOrcamentoDto: CreateOrcamentoDto) {
@@ -128,6 +132,43 @@ export class OrcamentosService {
 
     assertCanEditOrcamento(orcamento.status);
     return this.orcamentoModel.findByIdAndDelete(id).exec();
+  }
+
+  async gerarOrdemServico(id: string, user?: CurrentUserPayload) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Orcamento invalido.');
+    }
+
+    const orcamento = await this.orcamentoModel.findById(id).exec();
+    if (!orcamento) {
+      throw new NotFoundException('Orcamento nao encontrado.');
+    }
+
+    if (user?.empresaId && String(orcamento.empresaId) !== user.empresaId) {
+      throw new UnauthorizedException('Orcamento nao pertence a empresa do usuario.');
+    }
+
+    if (orcamento.status !== ORCAMENTO_STATUS.APROVADO) {
+      throw new BadRequestException('Apenas orcamento aprovado pode gerar ordem de servico.');
+    }
+
+    const existente = await this.osService.findByOrcamento(id);
+    if (existente) {
+      return existente;
+    }
+
+    const tecnicoId = user?.id || user?._id || user?.sub || String(orcamento.criadoPor);
+
+    return this.osService.create({
+      empresaId: String(orcamento.empresaId),
+      clienteId: String(orcamento.clienteId),
+      tecnicoId,
+      orcamentoId: id,
+      recebimentoEquipamentoId: String(orcamento.recebimentoEquipamentoId),
+      statusOperacional: OS_STATUS.ABERTA,
+      prioridade: 'normal',
+      dataEntrada: new Date().toISOString(),
+    });
   }
 
   async createItem(createItensOrcamentoDto: CreateItensOrcamentoDto) {
