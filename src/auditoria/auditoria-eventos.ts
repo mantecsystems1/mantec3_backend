@@ -4,6 +4,9 @@ import { CreateLogEventoDto } from './dto/create-log-evento.dto';
 export const AUDITORIA_EVENTOS = {
   RECEBIMENTO_CRIADO: 'RECEBIMENTO_CRIADO',
   TERMO_GERADO: 'TERMO_GERADO',
+  CLIENTE_CRIADO: 'CLIENTE_CRIADO',
+  CLIENTE_ATUALIZADO: 'CLIENTE_ATUALIZADO',
+  CLIENTE_REMOVIDO: 'CLIENTE_REMOVIDO',
   ORCAMENTO_CRIADO: 'ORCAMENTO_CRIADO',
   ORCAMENTO_ENVIADO: 'ORCAMENTO_ENVIADO',
   ORCAMENTO_APROVADO: 'ORCAMENTO_APROVADO',
@@ -31,6 +34,7 @@ export type AuditoriaEvento = (typeof AUDITORIA_EVENTOS)[keyof typeof AUDITORIA_
 export const AUDITORIA_ENTIDADES = {
   RECEBIMENTO: 'recebimento',
   TERMO_RECEBIMENTO: 'termo_recebimento',
+  CLIENTE: 'cliente',
   ORCAMENTO: 'orcamento',
   ORDEM_SERVICO: 'ordem_servico',
   ESTOQUE: 'estoque',

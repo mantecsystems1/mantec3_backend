@@ -7,6 +7,7 @@ describe('matriz de permissoes por evento', () => {
   });
 
   it('permite tecnico atuar em OS, mas nao registrar pagamento', () => {
+    expect(perfilPodeExecutarEvento('tecnico', EVENTOS_NEGOCIO.CLIENTE_EDITAR)).toBe(true);
     expect(perfilPodeExecutarEvento('tecnico', EVENTOS_NEGOCIO.OS_FINALIZAR)).toBe(true);
     expect(perfilPodeExecutarEvento('tecnico', EVENTOS_NEGOCIO.OS_RESERVAR_PECA)).toBe(true);
     expect(perfilPodeExecutarEvento('tecnico', EVENTOS_NEGOCIO.PAGAMENTO_REGISTRAR)).toBe(false);
