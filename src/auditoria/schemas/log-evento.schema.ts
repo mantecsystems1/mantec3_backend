@@ -24,7 +24,7 @@ export class LogEvento {
   data: Date;
 
   @Prop({ type: Object })
-  dados: any;
+  dados: Record<string, unknown>;
 }
 
 export const LogEventoSchema = SchemaFactory.createForClass(LogEvento);

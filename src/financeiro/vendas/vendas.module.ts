@@ -4,9 +4,11 @@ import { VendasService } from './vendas.service';
 import { VendasController } from './vendas.controller';
 import { Venda, VendaSchema } from './schemas/venda.schema';
 import { ItensVenda, ItensVendaSchema } from './schemas/itens-venda.schema';
+import { AuditoriaModule } from '../../auditoria/auditoria.module';
 
 @Module({
   imports: [
+    AuditoriaModule,
     MongooseModule.forFeature([
       { name: Venda.name, schema: VendaSchema },
       { name: ItensVenda.name, schema: ItensVendaSchema },

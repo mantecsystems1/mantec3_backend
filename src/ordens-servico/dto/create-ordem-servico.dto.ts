@@ -18,7 +18,7 @@ export class CreateOrdemServicoDto {
   @IsString()
   recebimentoEquipamentoId!: string;
 
-  @IsEnum(['aberta', 'em_diagnostico', 'em_execucao', 'concluida', 'cancelada'])
+  @IsEnum(['aberta', 'em_diagnostico', 'aguardando_peca', 'em_execucao', 'concluida', 'cancelada'])
   statusOperacional!: string;
 
   @IsEnum(['baixa', 'normal', 'alta', 'urgente'])

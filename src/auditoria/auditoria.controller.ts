@@ -17,6 +17,11 @@ export class AuditoriaController {
     return this.auditoriaService.findAll();
   }
 
+  @Get('entidade/:entidade/:entidadeId')
+  findByEntidade(@Param('entidade') entidade: string, @Param('entidadeId') entidadeId: string) {
+    return this.auditoriaService.findByEntidade(entidade, entidadeId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.auditoriaService.findOne(id);

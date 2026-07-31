@@ -6,9 +6,11 @@ import { Garantia, GarantiaSchema } from './schemas/garantia.schema';
 import { EnvioGarantia, EnvioGarantiaSchema } from './schemas/envio-garantia.schema';
 import { RetornoGarantia, RetornoGarantiaSchema } from './schemas/retorno-garantia.schema';
 import { CreditoFornecedor, CreditoFornecedorSchema } from './schemas/credito-fornecedor.schema';
+import { AuditoriaModule } from '../auditoria/auditoria.module';
 
 @Module({
   imports: [
+    AuditoriaModule,
     MongooseModule.forFeature([
       { name: Garantia.name, schema: GarantiaSchema },
       { name: EnvioGarantia.name, schema: EnvioGarantiaSchema },

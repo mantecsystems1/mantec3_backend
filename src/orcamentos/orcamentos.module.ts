@@ -4,9 +4,11 @@ import { OrcamentosService } from './orcamentos.service';
 import { OrcamentosController } from './orcamentos.controller';
 import { Orcamento, OrcamentoSchema } from './schemas/orcamento.schema';
 import { ItensOrcamento, ItensOrcamentoSchema } from './schemas/itens-orcamento.schema';
+import { AuditoriaModule } from '../auditoria/auditoria.module';
 
 @Module({
   imports: [
+    AuditoriaModule,
     MongooseModule.forFeature([
       { name: Orcamento.name, schema: OrcamentoSchema },
       { name: ItensOrcamento.name, schema: ItensOrcamentoSchema },

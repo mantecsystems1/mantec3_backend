@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsObject } from 'class-validator';
+import { IsNotEmpty, IsString, IsObject, IsOptional } from 'class-validator';
 import { Types } from 'mongoose';
 
 
@@ -20,6 +20,7 @@ export class CreateLogEventoDto {
   @IsNotEmpty()
   entidadeId: Types.ObjectId;
 
+  @IsOptional()
   @IsObject()
-  dados?: any;
+  dados?: Record<string, unknown>;
 }

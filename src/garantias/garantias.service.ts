@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Garantia, GarantiaDocument } from './schemas/garantia.schema';
 import { EnvioGarantia, EnvioGarantiaDocument } from './schemas/envio-garantia.schema';
 import { RetornoGarantia, RetornoGarantiaDocument } from './schemas/retorno-garantia.schema';
@@ -13,6 +13,10 @@ import { CreateRetornoGarantiaDto } from './dto/create-retorno-garantia.dto';
 import { UpdateRetornoGarantiaDto } from './dto/update-retorno-garantia.dto';
 import { CreateCreditoFornecedorDto } from './dto/create-credito-fornecedor.dto';
 import { UpdateCreditoFornecedorDto } from './dto/update-credito-fornecedor.dto';
+import { assertCanEditGarantia, assertCanTransitionGarantia } from './state/garantia.transitions';
+import { GARANTIA_STATUS, isGarantiaStatus } from './state/garantia.states';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 
 @Injectable()
 export class GarantiasService {
@@ -21,12 +25,35 @@ export class GarantiasService {
     @InjectModel(EnvioGarantia.name) private envioGarantiaModel: Model<EnvioGarantiaDocument>,
     @InjectModel(RetornoGarantia.name) private retornoGarantiaModel: Model<RetornoGarantiaDocument>,
     @InjectModel(CreditoFornecedor.name) private creditoFornecedorModel: Model<CreditoFornecedorDocument>,
+    private readonly auditoriaService: AuditoriaService,
   ) {}
 
-  // Garantia CRUD
-  createGarantia(createGarantiaDto: CreateGarantiaDto) {
+  async createGarantia(createGarantiaDto: CreateGarantiaDto, actorId?: string) {
+    if (!isGarantiaStatus(createGarantiaDto.status)) {
+      throw new BadRequestException(`Status de garantia invalido: ${createGarantiaDto.status}`);
+    }
+
     const createdGarantia = new this.garantiaModel(createGarantiaDto);
-    return createdGarantia.save();
+    const saved = await createdGarantia.save();
+
+    if (actorId) {
+      await this.auditoriaService.registrarEventoNegocio({
+        empresaId: createGarantiaDto.empresaId,
+        usuarioId: actorId,
+        tipoEvento: AUDITORIA_EVENTOS.GARANTIA_ABERTA,
+        entidade: AUDITORIA_ENTIDADES.GARANTIA,
+        entidadeId: saved._id as Types.ObjectId,
+        dados: {
+          status: createGarantiaDto.status,
+          clienteId: createGarantiaDto.clienteId,
+          vendaId: createGarantiaDto.vendaId,
+          produtoId: createGarantiaDto.produtoId,
+          quantidade: createGarantiaDto.quantidade,
+        },
+      });
+    }
+
+    return saved;
   }
 
   findAllGarantias() {
@@ -53,15 +80,54 @@ export class GarantiasService {
       .exec();
   }
 
-  updateGarantia(id: string, updateGarantiaDto: UpdateGarantiaDto) {
-    return this.garantiaModel.findByIdAndUpdate(id, updateGarantiaDto, { new: true }).exec();
+  async updateGarantia(id: string, updateGarantiaDto: UpdateGarantiaDto, actorId?: string) {
+    const garantia = await this.garantiaModel.findById(id).exec();
+    if (!garantia) {
+      throw new NotFoundException('Garantia nao encontrada.');
+    }
+
+    const nextStatus = updateGarantiaDto.status;
+    const hasNonStatusChanges = Object.keys(updateGarantiaDto).some((key) => key !== 'status');
+
+    if (nextStatus) {
+      assertCanTransitionGarantia(garantia.status, nextStatus);
+    }
+
+    if (hasNonStatusChanges) {
+      assertCanEditGarantia(garantia.status);
+    }
+
+    const updated = await this.garantiaModel.findByIdAndUpdate(id, updateGarantiaDto, { new: true }).exec();
+
+    if (actorId && nextStatus && nextStatus !== garantia.status) {
+      await this.auditoriaService.registrarEventoNegocio({
+        empresaId: garantia.empresaId,
+        usuarioId: actorId,
+        tipoEvento: nextStatus === GARANTIA_STATUS.CONCLUIDA
+          ? AUDITORIA_EVENTOS.GARANTIA_FINALIZADA
+          : AUDITORIA_EVENTOS.GARANTIA_STATUS_ALTERADO,
+        entidade: AUDITORIA_ENTIDADES.GARANTIA,
+        entidadeId: garantia._id as Types.ObjectId,
+        dados: {
+          statusAnterior: garantia.status,
+          statusAtual: nextStatus,
+        },
+      });
+    }
+
+    return updated;
   }
 
-  removeGarantia(id: string) {
+  async removeGarantia(id: string) {
+    const garantia = await this.garantiaModel.findById(id).exec();
+    if (!garantia) {
+      throw new NotFoundException('Garantia nao encontrada.');
+    }
+
+    assertCanEditGarantia(garantia.status);
     return this.garantiaModel.findByIdAndDelete(id).exec();
   }
 
-  // EnvioGarantia CRUD
   createEnvioGarantia(createEnvioGarantiaDto: CreateEnvioGarantiaDto) {
     const createdEnvioGarantia = new this.envioGarantiaModel(createEnvioGarantiaDto);
     return createdEnvioGarantia.save();
@@ -83,7 +149,6 @@ export class GarantiasService {
     return this.envioGarantiaModel.findByIdAndDelete(id).exec();
   }
 
-  // RetornoGarantia CRUD
   createRetornoGarantia(createRetornoGarantiaDto: CreateRetornoGarantiaDto) {
     const createdRetornoGarantia = new this.retornoGarantiaModel(createRetornoGarantiaDto);
     return createdRetornoGarantia.save();
@@ -97,15 +162,14 @@ export class GarantiasService {
     return this.retornoGarantiaModel.findById(id).exec();
   }
 
-  updateRetornoGarantia(id: string, updateRetornoGarantiaDto: UpdateRetornoGarantiaDto) {
-    return this.retornoGarantiaModel.findByIdAndUpdate(id, updateRetornoGarantiaDto, { new: true }).exec();
+  updateRetornoGarantia(id: string, updateRetornoGarantDto: UpdateRetornoGarantiaDto) {
+    return this.retornoGarantiaModel.findByIdAndUpdate(id, updateRetornoGarantDto, { new: true }).exec();
   }
 
   removeRetornoGarantia(id: string) {
     return this.retornoGarantiaModel.findByIdAndDelete(id).exec();
   }
 
-  // CreditoFornecedor CRUD
   createCreditoFornecedor(createCreditoFornecedorDto: CreateCreditoFornecedorDto) {
     const createdCreditoFornecedor = new this.creditoFornecedorModel(createCreditoFornecedorDto);
     return createdCreditoFornecedor.save();

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Venda, VendaDocument } from './schemas/venda.schema';
@@ -7,17 +7,25 @@ import { CreateVendaDto } from './dto/create-venda.dto';
 import { UpdateVendaDto } from './dto/update-venda.dto';
 import { CreateItensVendaDto } from './dto/create-itens-venda.dto';
 import { UpdateItensVendaDto } from './dto/update-itens-venda.dto';
+import { isVendaStatusFinanceiro } from './venda-financeiro.states';
+import { AuditoriaService } from '../../auditoria/auditoria.service';
+import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../../auditoria/auditoria-eventos';
 
 @Injectable()
 export class VendasService {
   constructor(
     @InjectModel(Venda.name) private vendaModel: Model<VendaDocument>,
     @InjectModel(ItensVenda.name) private itensVendaModel: Model<ItensVendaDocument>,
+    private readonly auditoriaService: AuditoriaService,
   ) {}
 
   // Venda CRUD
-  async create(createVendaDto: CreateVendaDto) {
+  async create(createVendaDto: CreateVendaDto, actorId?: string) {
     const { itens = [], ...dto } = createVendaDto;
+    if (!isVendaStatusFinanceiro(dto.statusFinanceiro)) {
+      throw new BadRequestException(`Status financeiro invalido: ${dto.statusFinanceiro}`);
+    }
+
     const vendaData: any = { ...dto };
     if (dto.subtotal) {
       vendaData.subtotal = Types.Decimal128.fromString(dto.subtotal);
@@ -44,6 +52,23 @@ export class VendasService {
       }
     }
 
+    if (actorId) {
+      await this.auditoriaService.registrarEventoNegocio({
+        empresaId: dto.empresaId,
+        usuarioId: actorId,
+        tipoEvento: AUDITORIA_EVENTOS.VENDA_GERADA,
+        entidade: AUDITORIA_ENTIDADES.VENDA,
+        entidadeId: createdVenda._id as Types.ObjectId,
+        dados: {
+          clienteId: dto.clienteId,
+          origemTipo: dto.origemTipo,
+          origemId: dto.origemId,
+          total: dto.total,
+          statusFinanceiro: dto.statusFinanceiro,
+        },
+      });
+    }
+
     return this.findOne(createdVenda._id.toString());
   }
 
@@ -65,7 +90,7 @@ export class VendasService {
     return venda ? this.attachItensVenda(venda) : null;
   }
 
-  async update(id: string, updateVendaDto: UpdateVendaDto) {
+  async update(id: string, updateVendaDto: UpdateVendaDto, actorId?: string) {
     const { itens, ...dto } = updateVendaDto;
     const updateData: any = { ...dto };
     if (dto.subtotal) {
@@ -95,11 +120,44 @@ export class VendasService {
       }
     }
 
+    if (actorId) {
+      const venda = await this.vendaModel.findById(id).exec();
+      if (venda) {
+        await this.auditoriaService.registrarEventoNegocio({
+          empresaId: venda.empresaId,
+          usuarioId: actorId,
+          tipoEvento: AUDITORIA_EVENTOS.VENDA_ATUALIZADA,
+          entidade: AUDITORIA_ENTIDADES.VENDA,
+          entidadeId: venda._id as Types.ObjectId,
+          dados: {
+            operacao: 'atualizada',
+            statusFinanceiro: venda.statusFinanceiro,
+          },
+        });
+      }
+    }
+
     return this.findOne(id);
   }
 
-  remove(id: string) {
-    return this.vendaModel.findByIdAndDelete(id).exec();
+  async remove(id: string, actorId?: string) {
+    const removed = await this.vendaModel.findByIdAndDelete(id).exec();
+
+    if (actorId && removed) {
+      await this.auditoriaService.registrarEventoNegocio({
+        empresaId: removed.empresaId,
+        usuarioId: actorId,
+          tipoEvento: AUDITORIA_EVENTOS.VENDA_REMOVIDA,
+        entidade: AUDITORIA_ENTIDADES.VENDA,
+        entidadeId: removed._id as Types.ObjectId,
+        dados: {
+          operacao: 'removida',
+          statusFinanceiro: removed.statusFinanceiro,
+        },
+      });
+    }
+
+    return removed;
   }
 
   // ItensVenda CRUD
