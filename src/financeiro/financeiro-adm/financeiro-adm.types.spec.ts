@@ -6,6 +6,8 @@ import {
   calcularStatusTitulo,
   centavosParaDecimal128,
   dinheiroParaCentavos,
+  FORMA_PAGAMENTO_FINANCEIRO,
+  normalizarFormaPagamentoFinanceiro,
   vencimentoDaCompetencia,
 } from './financeiro-adm.types';
 
@@ -33,5 +35,11 @@ describe('financeiro adm dominio', () => {
     const vencimento = vencimentoDaCompetencia(new Date(Date.UTC(2026, 1, 1)), 31);
 
     expect(vencimento.toISOString().slice(0, 10)).toBe('2026-02-28');
+  });
+
+  it('normaliza formas de pagamento legadas para o livro caixa', () => {
+    expect(normalizarFormaPagamentoFinanceiro('Cartao de Credito')).toBe(FORMA_PAGAMENTO_FINANCEIRO.CARTAO_CREDITO);
+    expect(normalizarFormaPagamentoFinanceiro('Transferência')).toBe(FORMA_PAGAMENTO_FINANCEIRO.TRANSFERENCIA);
+    expect(normalizarFormaPagamentoFinanceiro('PIX')).toBe(FORMA_PAGAMENTO_FINANCEIRO.PIX);
   });
 });

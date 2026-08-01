@@ -7,10 +7,12 @@ import { PedidosCompra, PedidosCompraSchema } from './schemas/pedido-compra.sche
 import { ItensPedidoCompra, ItensPedidoCompraSchema } from './schemas/itens-pedido-compra.schema';
 import { MovimentosEstoque, MovimentosEstoqueSchema } from '../estoque/schemas/movimento-estoque.schema';
 import { AuditoriaModule } from '../auditoria/auditoria.module';
+import { FinanceiroAdmModule } from '../financeiro/financeiro-adm/financeiro-adm.module';
 
 @Module({
   imports: [
     AuditoriaModule,
+    FinanceiroAdmModule,
     MongooseModule.forFeature([
       { name: Fornecedor.name, schema: FornecedorSchema },
       { name: PedidosCompra.name, schema: PedidosCompraSchema },

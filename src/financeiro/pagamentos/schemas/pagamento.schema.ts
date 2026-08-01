@@ -16,6 +16,15 @@ export class Pagamento {
 
   @Prop({ required: true })
   dataPagamento: Date;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'ContaFinanceira' })
+  contaFinanceiraId?: Types.ObjectId;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'TituloFinanceiro' })
+  tituloFinanceiroId?: Types.ObjectId;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'MovimentoCaixa' })
+  movimentoCaixaId?: Types.ObjectId;
 }
 
 export const PagamentoSchema = SchemaFactory.createForClass(Pagamento);

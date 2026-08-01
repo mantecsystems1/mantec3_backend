@@ -69,6 +69,26 @@ export type TituloFinanceiroTipo = (typeof TITULO_FINANCEIRO_TIPO)[keyof typeof 
 export type MovimentoCaixaTipo = (typeof MOVIMENTO_CAIXA_TIPO)[keyof typeof MOVIMENTO_CAIXA_TIPO];
 export type RecorrenciaFinanceiraFrequencia = (typeof RECORRENCIA_FINANCEIRA_FREQUENCIA)[keyof typeof RECORRENCIA_FINANCEIRA_FREQUENCIA];
 
+export function normalizarFormaPagamentoFinanceiro(value: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s-]+/g, '_');
+
+  if (normalized.includes('dinheiro')) return FORMA_PAGAMENTO_FINANCEIRO.DINHEIRO;
+  if (normalized.includes('pix')) return FORMA_PAGAMENTO_FINANCEIRO.PIX;
+  if (normalized.includes('debito')) return FORMA_PAGAMENTO_FINANCEIRO.CARTAO_DEBITO;
+  if (normalized.includes('credito') || normalized === 'cartao') return FORMA_PAGAMENTO_FINANCEIRO.CARTAO_CREDITO;
+  if (normalized.includes('boleto')) return FORMA_PAGAMENTO_FINANCEIRO.BOLETO;
+  if (normalized.includes('transferencia') || normalized.includes('ted') || normalized.includes('doc')) {
+    return FORMA_PAGAMENTO_FINANCEIRO.TRANSFERENCIA;
+  }
+
+  return FORMA_PAGAMENTO_FINANCEIRO.OUTRO;
+}
+
 export function tituloTipoParaCategoriaTipo(tipo: string): CategoriaFinanceiraTipo {
   return tipo === TITULO_FINANCEIRO_TIPO.RECEBER
     ? CATEGORIA_FINANCEIRA_TIPO.ENTRADA

@@ -22,6 +22,9 @@ import { MovimentoCaixa, MovimentoCaixaDocument } from './schemas/movimento-caix
 import { RecorrenciaFinanceira, RecorrenciaFinanceiraDocument } from './schemas/recorrencia-financeira.schema';
 import {
   CATEGORIA_FINANCEIRA_CLASSIFICACAO,
+  CATEGORIA_FINANCEIRA_TIPO,
+  CONTA_FINANCEIRA_TIPO,
+  FORMA_PAGAMENTO_FINANCEIRO,
   MOVIMENTO_CAIXA_STATUS,
   MOVIMENTO_CAIXA_TIPO,
   RecorrenciaFinanceiraFrequencia,
@@ -34,6 +37,7 @@ import {
   centavosParaDecimal128,
   centavosParaString,
   dinheiroParaCentavos,
+  normalizarFormaPagamentoFinanceiro,
   tituloTipoParaCategoriaTipo,
   tituloTipoParaMovimentoTipo,
   vencimentoDaCompetencia,
@@ -53,6 +57,33 @@ interface RegistrarMovimentoInput {
   formaPagamento: string;
   origemTipo?: string;
   origemId?: string | Types.ObjectId;
+  observacoes?: string;
+}
+
+interface UpsertTituloIntegracaoInput {
+  empresaId: string;
+  tipo: string;
+  categoriaId: string;
+  descricao: string;
+  valorTotal: unknown;
+  dataCompetencia: Date | string;
+  dataVencimento: Date | string;
+  contraparteTipo: string;
+  contraparteId?: string;
+  origemTipo: string;
+  origemId: string;
+  observacoes?: string;
+}
+
+interface BaixarTituloIntegradoInput {
+  titulo: TituloFinanceiroDocument;
+  contaId: string;
+  valor: unknown;
+  dataPagamento: Date | string;
+  formaPagamento: string;
+  origemTipo: string;
+  origemId: string;
+  descricao: string;
   observacoes?: string;
 }
 
@@ -698,6 +729,174 @@ export class FinanceiroAdmService {
     };
   }
 
+  async sincronizarTituloVenda(venda: any, actorId?: string, actorEmpresaId?: string) {
+    const empresaId = venda.empresaId?.toString();
+    const vendaId = venda._id?.toString();
+    if (!empresaId || !vendaId) {
+      throw new BadRequestException('Venda invalida para sincronizacao financeira.');
+    }
+
+    this.assertEmpresaPermitida(empresaId, actorEmpresaId);
+
+    if (venda.statusFinanceiro === 'cancelado') {
+      return this.cancelarTituloPorOrigem(empresaId, 'venda', vendaId, actorId, actorEmpresaId);
+    }
+
+    const categoria = await this.getOuCriarCategoriaIntegracao(
+      empresaId,
+      CATEGORIA_FINANCEIRA_TIPO.ENTRADA,
+      'Vendas',
+      'receitas_operacionais',
+      actorId,
+    );
+
+    return this.upsertTituloIntegracao({
+      empresaId,
+      tipo: TITULO_FINANCEIRO_TIPO.RECEBER,
+      categoriaId: (categoria._id as Types.ObjectId).toString(),
+      descricao: `Venda ${this.shortId(vendaId)}`,
+      valorTotal: venda.total,
+      dataCompetencia: venda.criadoEm ?? venda.createdAt ?? new Date(),
+      dataVencimento: venda.criadoEm ?? venda.createdAt ?? new Date(),
+      contraparteTipo: 'cliente',
+      contraparteId: venda.clienteId?.toString(),
+      origemTipo: 'venda',
+      origemId: vendaId,
+      observacoes: 'Titulo gerado automaticamente pela venda.',
+    }, actorId, actorEmpresaId);
+  }
+
+  async sincronizarTituloCompraPedido(pedido: any, total: unknown, actorId?: string, actorEmpresaId?: string) {
+    const empresaId = pedido.empresaId?.toString();
+    const pedidoId = pedido._id?.toString();
+    if (!empresaId || !pedidoId) {
+      throw new BadRequestException('Pedido de compra invalido para sincronizacao financeira.');
+    }
+
+    this.assertEmpresaPermitida(empresaId, actorEmpresaId);
+
+    if (this.isStatusCancelado(pedido.status)) {
+      return this.cancelarTituloPorOrigem(empresaId, 'pedido_compra', pedidoId, actorId, actorEmpresaId);
+    }
+
+    const totalCentavos = dinheiroParaCentavos(total);
+    if (!Number.isFinite(totalCentavos) || totalCentavos <= 0) {
+      return this.cancelarTituloPorOrigem(empresaId, 'pedido_compra', pedidoId, actorId, actorEmpresaId);
+    }
+
+    const categoria = await this.getOuCriarCategoriaIntegracao(
+      empresaId,
+      CATEGORIA_FINANCEIRA_TIPO.SAIDA,
+      'Compras de fornecedor',
+      'fornecedores',
+      actorId,
+      true,
+    );
+
+    return this.upsertTituloIntegracao({
+      empresaId,
+      tipo: TITULO_FINANCEIRO_TIPO.PAGAR,
+      categoriaId: (categoria._id as Types.ObjectId).toString(),
+      descricao: `Compra ${this.shortId(pedidoId)}`,
+      valorTotal: centavosParaDecimal128(totalCentavos),
+      dataCompetencia: pedido.criadoEm ?? pedido.createdAt ?? new Date(),
+      dataVencimento: pedido.criadoEm ?? pedido.createdAt ?? new Date(),
+      contraparteTipo: 'fornecedor',
+      contraparteId: pedido.fornecedorId?.toString(),
+      origemTipo: 'pedido_compra',
+      origemId: pedidoId,
+      observacoes: 'Titulo gerado automaticamente pelo pedido de compra.',
+    }, actorId, actorEmpresaId);
+  }
+
+  async registrarPagamentoVenda(pagamento: any, venda: any, actorId?: string, actorEmpresaId?: string, contaFinanceiraId?: string) {
+    const empresaId = venda.empresaId?.toString();
+    const pagamentoId = pagamento._id?.toString();
+    if (!empresaId || !pagamentoId) {
+      throw new BadRequestException('Pagamento invalido para sincronizacao financeira.');
+    }
+
+    this.assertEmpresaPermitida(empresaId, actorEmpresaId);
+
+    const movimentoExistente = await this.movimentoModel.findOne({
+      empresaId,
+      origemTipo: 'pagamento_venda',
+      origemId: pagamento._id,
+      status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+    }).exec();
+
+    if (movimentoExistente) {
+      const tituloExistente = movimentoExistente.tituloId
+        ? await this.getTituloDaEmpresa(movimentoExistente.tituloId.toString(), actorEmpresaId)
+        : null;
+      return { titulo: tituloExistente, movimento: movimentoExistente };
+    }
+
+    const titulo = await this.sincronizarTituloVenda(venda, actorId, actorEmpresaId);
+    if (!titulo) {
+      throw new BadRequestException('Titulo financeiro da venda nao encontrado para baixa.');
+    }
+
+    const conta = contaFinanceiraId
+      ? await this.getContaDaEmpresa(contaFinanceiraId, actorEmpresaId)
+      : await this.getOuCriarContaIntegracao(empresaId, pagamento.formaPagamento, actorId);
+
+    return this.baixarTituloComMovimento({
+      titulo,
+      contaId: (conta._id as Types.ObjectId).toString(),
+      valor: pagamento.valor,
+      dataPagamento: pagamento.dataPagamento ?? new Date(),
+      formaPagamento: normalizarFormaPagamentoFinanceiro(pagamento.formaPagamento ?? ''),
+      origemTipo: 'pagamento_venda',
+      origemId: pagamentoId,
+      descricao: `Pagamento da venda ${this.shortId(venda._id?.toString())}`,
+      observacoes: 'Baixa gerada automaticamente pelo pagamento da venda.',
+    }, actorId, actorEmpresaId);
+  }
+
+  async estornarPagamentoVenda(pagamento: any, actorId?: string, actorEmpresaId?: string, motivo?: string) {
+    const pagamentoId = pagamento._id?.toString();
+    if (!pagamentoId) {
+      return null;
+    }
+
+    const movimentoId = pagamento.movimentoCaixaId?.toString();
+    const movimento = movimentoId
+      ? await this.movimentoModel.findOne(this.getEmpresaQuery(actorEmpresaId, { _id: movimentoId })).exec()
+      : await this.movimentoModel.findOne(this.getEmpresaQuery(actorEmpresaId, {
+        origemTipo: 'pagamento_venda',
+        origemId: pagamento._id,
+        status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+      })).exec();
+
+    if (!movimento || movimento.status === MOVIMENTO_CAIXA_STATUS.ESTORNADO) {
+      return null;
+    }
+
+    const movimentoParaEstornoId = movimento._id?.toString();
+    if (!movimentoParaEstornoId) {
+      return null;
+    }
+
+    return this.estornarMovimento(movimentoParaEstornoId, { motivo }, actorId, actorEmpresaId);
+  }
+
+  async cancelarTituloPorOrigem(empresaId: string, origemTipo: string, origemId: string, actorId?: string, actorEmpresaId?: string) {
+    this.assertEmpresaPermitida(empresaId, actorEmpresaId);
+
+    const titulo = await this.tituloModel.findOne({
+      empresaId,
+      origemTipo,
+      origemId: this.toObjectId(origemId, 'origemId'),
+    }).exec();
+
+    if (!titulo) {
+      return null;
+    }
+
+    return this.cancelarTitulo(titulo._id?.toString(), actorId, actorEmpresaId);
+  }
+
   private async gerarTituloDaRecorrencia(recorrencia: RecorrenciaFinanceiraDocument, actorId?: string, actorEmpresaId?: string) {
     if (recorrencia.status !== RECORRENCIA_FINANCEIRA_STATUS.ATIVA) {
       throw new BadRequestException('Recorrencia financeira nao esta ativa.');
@@ -745,6 +944,215 @@ export class FinanceiroAdmService {
     });
 
     return titulo;
+  }
+
+  private async upsertTituloIntegracao(input: UpsertTituloIntegracaoInput, actorId?: string, actorEmpresaId?: string) {
+    const valorTotalCentavos = dinheiroParaCentavos(input.valorTotal);
+    if (!Number.isFinite(valorTotalCentavos) || valorTotalCentavos <= 0) {
+      throw new BadRequestException('Valor total invalido para titulo financeiro integrado.');
+    }
+
+    await this.assertCategoriaPertenceTipo(input.categoriaId, actorEmpresaId, tituloTipoParaCategoriaTipo(input.tipo));
+
+    const origemId = this.toObjectId(input.origemId, 'origemId');
+    const existing = await this.tituloModel.findOne({
+      empresaId: input.empresaId,
+      origemTipo: input.origemTipo,
+      origemId,
+    }).exec();
+
+    if (!existing) {
+      return this.createTitulo({
+        empresaId: input.empresaId,
+        tipo: input.tipo,
+        categoriaId: input.categoriaId,
+        descricao: input.descricao,
+        valorTotal: centavosParaString(valorTotalCentavos),
+        dataCompetencia: this.toDate(input.dataCompetencia, 'dataCompetencia').toISOString(),
+        dataVencimento: this.toDate(input.dataVencimento, 'dataVencimento').toISOString(),
+        contraparteTipo: input.contraparteTipo,
+        contraparteId: input.contraparteId,
+        origemTipo: input.origemTipo,
+        origemId: input.origemId,
+        observacoes: input.observacoes,
+      }, actorId, actorEmpresaId);
+    }
+
+    if (existing.status === TITULO_FINANCEIRO_STATUS.CANCELADO) {
+      throw new BadRequestException('Titulo integrado ja foi cancelado.');
+    }
+
+    const valorPagoCentavos = dinheiroParaCentavos(existing.valorPago);
+    if (valorTotalCentavos < valorPagoCentavos) {
+      throw new BadRequestException('Valor integrado nao pode ser menor que o valor ja baixado.');
+    }
+
+    const status = calcularStatusTitulo(centavosParaDecimal128(valorTotalCentavos), existing.valorPago);
+    const titulo = await this.tituloModel.findOneAndUpdate(
+      { _id: existing._id, empresaId: input.empresaId },
+      {
+        categoriaId: this.toObjectId(input.categoriaId, 'categoriaId'),
+        descricao: input.descricao,
+        valorTotal: centavosParaDecimal128(valorTotalCentavos),
+        dataCompetencia: this.toDate(input.dataCompetencia, 'dataCompetencia'),
+        dataVencimento: this.toDate(input.dataVencimento, 'dataVencimento'),
+        status,
+        contraparteTipo: input.contraparteTipo,
+        contraparteId: this.toOptionalObjectId(input.contraparteId, 'contraparteId'),
+        observacoes: input.observacoes,
+      },
+      { new: true },
+    ).exec();
+
+    if (!titulo) {
+      throw new NotFoundException('Titulo financeiro integrado nao encontrado.');
+    }
+
+    await this.registrarAuditoria(titulo, actorId, AUDITORIA_EVENTOS.TITULO_FINANCEIRO_ATUALIZADO, AUDITORIA_ENTIDADES.TITULO_FINANCEIRO, {
+      origemTipo: input.origemTipo,
+      origemId: input.origemId,
+      valorTotal: centavosParaString(valorTotalCentavos),
+      status,
+    });
+
+    return titulo;
+  }
+
+  private async baixarTituloComMovimento(input: BaixarTituloIntegradoInput, actorId?: string, actorEmpresaId?: string) {
+    this.assertTituloPodeSerBaixado(input.titulo);
+
+    const valorBaixaCentavos = dinheiroParaCentavos(input.valor);
+    if (!Number.isFinite(valorBaixaCentavos) || valorBaixaCentavos <= 0) {
+      throw new BadRequestException('Valor da baixa invalido.');
+    }
+
+    const valorPagoCentavos = dinheiroParaCentavos(input.titulo.valorPago);
+    const valorTotalCentavos = dinheiroParaCentavos(input.titulo.valorTotal);
+    if (valorPagoCentavos + valorBaixaCentavos > valorTotalCentavos) {
+      throw new BadRequestException('Valor da baixa excede o saldo em aberto do titulo.');
+    }
+
+    const conta = await this.getContaDaEmpresa(input.contaId, actorEmpresaId);
+    const movimento = await this.registrarMovimento({
+      empresaId: input.titulo.empresaId,
+      contaId: conta._id as Types.ObjectId,
+      categoriaId: input.titulo.categoriaId,
+      tituloId: input.titulo._id as Types.ObjectId,
+      tipo: tituloTipoParaMovimentoTipo(input.titulo.tipo),
+      descricao: input.descricao,
+      valorCentavos: valorBaixaCentavos,
+      dataMovimento: this.toDate(input.dataPagamento, 'dataPagamento'),
+      formaPagamento: input.formaPagamento,
+      origemTipo: input.origemTipo,
+      origemId: input.origemId,
+      observacoes: input.observacoes,
+    }, actorId);
+
+    const novoValorPagoCentavos = valorPagoCentavos + valorBaixaCentavos;
+    const status = calcularStatusTitulo(input.titulo.valorTotal, centavosParaDecimal128(novoValorPagoCentavos));
+    const tituloAtualizado = await this.atualizarPagamentoTitulo(
+      (input.titulo._id as Types.ObjectId).toString(),
+      novoValorPagoCentavos,
+      status,
+      status === TITULO_FINANCEIRO_STATUS.QUITADO ? this.toDate(input.dataPagamento, 'dataPagamento') : undefined,
+      conta._id as Types.ObjectId,
+      actorEmpresaId,
+    );
+
+    await this.registrarAuditoria(tituloAtualizado, actorId, AUDITORIA_EVENTOS.TITULO_FINANCEIRO_BAIXADO, AUDITORIA_ENTIDADES.TITULO_FINANCEIRO, {
+      origemTipo: input.origemTipo,
+      origemId: input.origemId,
+      valorBaixa: centavosParaString(valorBaixaCentavos),
+      status,
+      movimentoId: movimento._id?.toString(),
+    });
+
+    return {
+      titulo: tituloAtualizado,
+      movimento,
+    };
+  }
+
+  private async getOuCriarCategoriaIntegracao(
+    empresaId: string,
+    tipo: string,
+    nome: string,
+    grupo: string,
+    actorId?: string,
+    dedutivel = false,
+  ) {
+    const existing = await this.categoriaModel.findOne({ empresaId, tipo, nome }).exec();
+    if (existing) {
+      if (existing.ativo === false) {
+        const reactivated = await this.categoriaModel.findByIdAndUpdate(existing._id, { ativo: true }, { new: true }).exec();
+        if (!reactivated) {
+          throw new NotFoundException('Categoria financeira de integracao nao encontrada.');
+        }
+        return reactivated;
+      }
+
+      return existing;
+    }
+
+    const categoria = await this.categoriaModel.create({
+      empresaId: this.toObjectId(empresaId, 'empresaId'),
+      nome,
+      tipo,
+      grupo,
+      classificacao: CATEGORIA_FINANCEIRA_CLASSIFICACAO.EMPRESA,
+      recorrente: false,
+      dedutivel,
+      ativo: true,
+      observacoes: 'Categoria criada automaticamente pela integracao financeira.',
+    });
+
+    await this.registrarAuditoria(categoria, actorId, AUDITORIA_EVENTOS.CATEGORIA_FINANCEIRA_CRIADA, AUDITORIA_ENTIDADES.CATEGORIA_FINANCEIRA, {
+      nome,
+      tipo,
+      origem: 'integracao',
+    });
+
+    return categoria;
+  }
+
+  private async getOuCriarContaIntegracao(empresaId: string, formaPagamento: string | undefined, actorId?: string) {
+    const forma = normalizarFormaPagamentoFinanceiro(formaPagamento ?? '');
+    const nome = forma === FORMA_PAGAMENTO_FINANCEIRO.DINHEIRO ? 'Caixa Geral' : 'Conta Financeira Padrao';
+    const tipo = forma === FORMA_PAGAMENTO_FINANCEIRO.DINHEIRO
+      ? CONTA_FINANCEIRA_TIPO.CAIXA
+      : CONTA_FINANCEIRA_TIPO.CONTA_BANCARIA;
+
+    const existing = await this.contaModel.findOne({ empresaId, nome }).exec();
+    if (existing) {
+      if (existing.ativo === false) {
+        const reactivated = await this.contaModel.findByIdAndUpdate(existing._id, { ativo: true }, { new: true }).exec();
+        if (!reactivated) {
+          throw new NotFoundException('Conta financeira de integracao nao encontrada.');
+        }
+        return reactivated;
+      }
+
+      return existing;
+    }
+
+    const conta = await this.contaModel.create({
+      empresaId: this.toObjectId(empresaId, 'empresaId'),
+      nome,
+      tipo,
+      saldoInicial: centavosParaDecimal128(0),
+      saldoAtual: centavosParaDecimal128(0),
+      moeda: 'BRL',
+      ativo: true,
+      observacoes: 'Conta criada automaticamente pela integracao financeira.',
+    });
+
+    await this.registrarAuditoria(conta, actorId, AUDITORIA_EVENTOS.CONTA_FINANCEIRA_CRIADA, AUDITORIA_ENTIDADES.CONTA_FINANCEIRA, {
+      nome,
+      tipo,
+      origem: 'integracao',
+    });
+
+    return conta;
   }
 
   private async registrarMovimento(input: RegistrarMovimentoInput, actorId?: string) {
@@ -877,6 +1285,15 @@ export class FinanceiroAdmService {
 
   private getEmpresaQuery(empresaId?: string, base: Record<string, unknown> = {}) {
     return empresaId ? { ...base, empresaId } : base;
+  }
+
+  private isStatusCancelado(status?: string) {
+    const normalized = String(status ?? '').trim().toLowerCase();
+    return ['cancelado', 'cancelada', 'cancelled', 'canceled'].includes(normalized);
+  }
+
+  private shortId(id?: string) {
+    return String(id ?? '').slice(-8).toUpperCase();
   }
 
   private assertEmpresaPermitida(empresaId?: string, actorEmpresaId?: string) {

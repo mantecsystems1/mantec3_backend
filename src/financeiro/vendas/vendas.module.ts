@@ -5,10 +5,12 @@ import { VendasController } from './vendas.controller';
 import { Venda, VendaSchema } from './schemas/venda.schema';
 import { ItensVenda, ItensVendaSchema } from './schemas/itens-venda.schema';
 import { AuditoriaModule } from '../../auditoria/auditoria.module';
+import { FinanceiroAdmModule } from '../financeiro-adm/financeiro-adm.module';
 
 @Module({
   imports: [
     AuditoriaModule,
+    FinanceiroAdmModule,
     MongooseModule.forFeature([
       { name: Venda.name, schema: VendaSchema },
       { name: ItensVenda.name, schema: ItensVendaSchema },

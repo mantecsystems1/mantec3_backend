@@ -10,6 +10,7 @@ import { UpdateItensVendaDto } from './dto/update-itens-venda.dto';
 import { isVendaStatusFinanceiro } from './venda-financeiro.states';
 import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../../auditoria/auditoria-eventos';
+import { FinanceiroAdmService } from '../financeiro-adm/financeiro-adm.service';
 
 @Injectable()
 export class VendasService {
@@ -17,6 +18,7 @@ export class VendasService {
     @InjectModel(Venda.name) private vendaModel: Model<VendaDocument>,
     @InjectModel(ItensVenda.name) private itensVendaModel: Model<ItensVendaDocument>,
     private readonly auditoriaService: AuditoriaService,
+    private readonly financeiroAdmService: FinanceiroAdmService,
   ) {}
 
   // Venda CRUD
@@ -71,6 +73,8 @@ export class VendasService {
       });
     }
 
+    await this.financeiroAdmService.sincronizarTituloVenda(createdVenda, actorId, actorEmpresaId);
+
     return this.findOne(createdVenda._id.toString(), actorEmpresaId);
   }
 
@@ -96,6 +100,21 @@ export class VendasService {
     const { itens, ...dto } = updateVendaDto;
     if (dto.empresaId) {
       this.assertEmpresaPermitida(dto.empresaId, actorEmpresaId);
+    }
+
+    const vendaAtual = await this.vendaModel.findOne(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
+    if (!vendaAtual) {
+      throw new NotFoundException('Venda nao encontrada.');
+    }
+
+    if (dto.statusFinanceiro === 'cancelado') {
+      await this.financeiroAdmService.cancelarTituloPorOrigem(
+        vendaAtual.empresaId.toString(),
+        'venda',
+        id,
+        actorId,
+        actorEmpresaId,
+      );
     }
 
     const updateData: any = { ...dto };
@@ -146,10 +165,25 @@ export class VendasService {
       }
     }
 
+    await this.financeiroAdmService.sincronizarTituloVenda(updated, actorId, actorEmpresaId);
+
     return this.findOne(id, actorEmpresaId);
   }
 
   async remove(id: string, actorId?: string, actorEmpresaId?: string) {
+    const venda = await this.vendaModel.findOne(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
+    if (!venda) {
+      throw new NotFoundException('Venda nao encontrada.');
+    }
+
+    await this.financeiroAdmService.cancelarTituloPorOrigem(
+      venda.empresaId.toString(),
+      'venda',
+      id,
+      actorId,
+      actorEmpresaId,
+    );
+
     const removed = await this.vendaModel.findOneAndDelete(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
 
     if (actorId && removed) {

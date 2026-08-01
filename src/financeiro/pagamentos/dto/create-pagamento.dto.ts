@@ -1,4 +1,4 @@
-import { IsString } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 
 export class CreatePagamentoDto {
   @IsString()
@@ -12,4 +12,8 @@ export class CreatePagamentoDto {
 
   @IsString()
   dataPagamento: string;
+
+  @IsOptional()
+  @IsString()
+  contaFinanceiraId?: string;
 }

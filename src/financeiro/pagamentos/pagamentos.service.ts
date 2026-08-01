@@ -8,6 +8,7 @@ import { Venda, VendaDocument } from '../vendas/schemas/venda.schema';
 import { VENDA_STATUS_FINANCEIRO, calcularStatusFinanceiroVenda, decimalToNumber } from '../vendas/venda-financeiro.states';
 import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../../auditoria/auditoria-eventos';
+import { FinanceiroAdmService } from '../financeiro-adm/financeiro-adm.service';
 
 @Injectable()
 export class PagamentosService {
@@ -15,6 +16,7 @@ export class PagamentosService {
     @InjectModel(Pagamento.name) private pagamentoModel: Model<PagamentoDocument>,
     @InjectModel(Venda.name) private vendaModel: Model<VendaDocument>,
     private readonly auditoriaService: AuditoriaService,
+    private readonly financeiroAdmService: FinanceiroAdmService,
   ) {}
 
   async create(createPagamentoDto: CreatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
@@ -41,6 +43,7 @@ export class PagamentosService {
     const saved = await createdPagamento.save();
 
     await this.atualizarStatusFinanceiroVenda(createPagamentoDto.vendaId);
+    await this.sincronizarFinanceiroPagamento(saved, venda, actorId, actorEmpresaId, createPagamentoDto.contaFinanceiraId);
 
     if (actorId) {
       await this.registrarAuditoriaPagamento(saved, venda, actorId, 'registrado');
@@ -95,8 +98,19 @@ export class PagamentosService {
       updateData.valor = Types.Decimal128.fromString(updatePagamentoDto.valor);
     }
 
+    await this.financeiroAdmService.estornarPagamentoVenda(
+      pagamento,
+      actorId,
+      actorEmpresaId,
+      'Estorno automatico para atualizacao do pagamento.',
+    );
+
     const updated = await this.pagamentoModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
     await this.atualizarStatusFinanceiroVenda(vendaId);
+
+    if (updated) {
+      await this.sincronizarFinanceiroPagamento(updated, venda, actorId, actorEmpresaId, updatePagamentoDto.contaFinanceiraId);
+    }
 
     if (actorId && updated) {
       await this.registrarAuditoriaPagamento(updated, venda, actorId, 'atualizado');
@@ -113,6 +127,12 @@ export class PagamentosService {
 
     const vendaId = pagamento.vendaId.toString();
     const venda = await this.getVendaDaEmpresa(vendaId, actorEmpresaId);
+    await this.financeiroAdmService.estornarPagamentoVenda(
+      pagamento,
+      actorId,
+      actorEmpresaId,
+      'Estorno automatico pela remocao do pagamento.',
+    );
     const removed = await this.pagamentoModel.findByIdAndDelete(id).exec();
     await this.atualizarStatusFinanceiroVenda(vendaId);
 
@@ -121,6 +141,31 @@ export class PagamentosService {
     }
 
     return removed;
+  }
+
+  private async sincronizarFinanceiroPagamento(
+    pagamento: PagamentoDocument,
+    venda: VendaDocument,
+    actorId?: string,
+    actorEmpresaId?: string,
+    contaFinanceiraId?: string,
+  ) {
+    const financeiro = await this.financeiroAdmService.registrarPagamentoVenda(
+      pagamento,
+      venda,
+      actorId,
+      actorEmpresaId,
+      contaFinanceiraId ?? pagamento.contaFinanceiraId?.toString(),
+    );
+
+    const vinculos = {
+      tituloFinanceiroId: financeiro.titulo?._id,
+      movimentoCaixaId: financeiro.movimento?._id,
+      contaFinanceiraId: financeiro.movimento?.contaId,
+    };
+
+    await this.pagamentoModel.findByIdAndUpdate(pagamento._id, vinculos, { new: true }).exec();
+    Object.assign(pagamento, vinculos);
   }
 
   private assertVendaPodeReceberPagamento(statusFinanceiro: string, permitePago = false) {

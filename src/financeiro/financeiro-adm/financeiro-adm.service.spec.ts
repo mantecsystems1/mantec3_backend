@@ -32,6 +32,7 @@ describe('FinanceiroAdmService', () => {
       create: jest.fn(),
       find: jest.fn(),
       findOne: jest.fn(),
+      findByIdAndUpdate: jest.fn(),
       findOneAndUpdate: jest.fn(),
       exists: jest.fn(),
     };
@@ -39,6 +40,7 @@ describe('FinanceiroAdmService', () => {
       create: jest.fn(),
       find: jest.fn(),
       findOne: jest.fn(),
+      findByIdAndUpdate: jest.fn(),
       findOneAndUpdate: jest.fn(),
       exists: jest.fn(),
     };
@@ -210,5 +212,156 @@ describe('FinanceiroAdmService', () => {
     expect(result.totalEntradas).toBe('100.00');
     expect(result.totalSaidas).toBe('30.00');
     expect(result.saldoPeriodo).toBe('70.00');
+  });
+
+  it('sincroniza venda criando categoria padrao e titulo a receber', async () => {
+    const empresaId = new Types.ObjectId();
+    const vendaId = new Types.ObjectId();
+    const clienteId = new Types.ObjectId();
+    const categoriaId = new Types.ObjectId();
+    const tituloId = new Types.ObjectId();
+    const categoria = {
+      _id: categoriaId,
+      empresaId,
+      nome: 'Vendas',
+      tipo: CATEGORIA_FINANCEIRA_TIPO.ENTRADA,
+      ativo: true,
+    };
+    const titulo = {
+      _id: tituloId,
+      empresaId,
+      tipo: TITULO_FINANCEIRO_TIPO.RECEBER,
+      categoriaId,
+      origemTipo: 'venda',
+      origemId: vendaId,
+      valorTotal: Types.Decimal128.fromString('250.00'),
+      valorPago: Types.Decimal128.fromString('0.00'),
+      status: TITULO_FINANCEIRO_STATUS.ABERTO,
+    };
+    const { service, categoriaModel, tituloModel } = createService();
+    categoriaModel.findOne
+      .mockReturnValueOnce(execResult(null))
+      .mockReturnValueOnce(execResult(categoria))
+      .mockReturnValueOnce(execResult(categoria));
+    categoriaModel.create.mockResolvedValue(categoria);
+    tituloModel.findOne.mockReturnValue(execResult(null));
+    tituloModel.create.mockResolvedValue(titulo);
+
+    const result = await service.sincronizarTituloVenda({
+      _id: vendaId,
+      empresaId,
+      clienteId,
+      total: Types.Decimal128.fromString('250.00'),
+      criadoEm: new Date('2026-08-01'),
+      statusFinanceiro: 'pendente',
+    }, new Types.ObjectId().toString(), empresaId.toString());
+
+    expect(categoriaModel.create).toHaveBeenCalledWith(expect.objectContaining({
+      nome: 'Vendas',
+      tipo: CATEGORIA_FINANCEIRA_TIPO.ENTRADA,
+      grupo: 'receitas_operacionais',
+    }));
+    expect(tituloModel.create).toHaveBeenCalledWith(expect.objectContaining({
+      tipo: TITULO_FINANCEIRO_TIPO.RECEBER,
+      descricao: `Venda ${vendaId.toString().slice(-8).toUpperCase()}`,
+      origemTipo: 'venda',
+    }));
+    expect(tituloModel.create.mock.calls[0][0].valorTotal.toString()).toBe('250.00');
+    expect(result).toBe(titulo);
+  });
+
+  it('registra pagamento de venda baixando titulo e gerando entrada no caixa', async () => {
+    const empresaId = new Types.ObjectId();
+    const vendaId = new Types.ObjectId();
+    const pagamentoId = new Types.ObjectId();
+    const clienteId = new Types.ObjectId();
+    const categoriaId = new Types.ObjectId();
+    const contaId = new Types.ObjectId();
+    const tituloId = new Types.ObjectId();
+    const movimentoId = new Types.ObjectId();
+    const categoria = {
+      _id: categoriaId,
+      empresaId,
+      nome: 'Vendas',
+      tipo: CATEGORIA_FINANCEIRA_TIPO.ENTRADA,
+      ativo: true,
+    };
+    const conta = {
+      _id: contaId,
+      empresaId,
+      nome: 'Caixa Geral',
+      saldoAtual: Types.Decimal128.fromString('10.00'),
+      ativo: true,
+    };
+    const titulo = {
+      _id: tituloId,
+      empresaId,
+      tipo: TITULO_FINANCEIRO_TIPO.RECEBER,
+      categoriaId,
+      descricao: 'Venda',
+      origemTipo: 'venda',
+      origemId: vendaId,
+      valorTotal: Types.Decimal128.fromString('100.00'),
+      valorPago: Types.Decimal128.fromString('0.00'),
+      status: TITULO_FINANCEIRO_STATUS.ABERTO,
+    };
+    const tituloAtualizado = {
+      ...titulo,
+      valorPago: Types.Decimal128.fromString('100.00'),
+      status: TITULO_FINANCEIRO_STATUS.QUITADO,
+    };
+    const movimento = {
+      _id: movimentoId,
+      empresaId,
+      contaId,
+      tituloId,
+      tipo: MOVIMENTO_CAIXA_TIPO.ENTRADA,
+      valor: Types.Decimal128.fromString('100.00'),
+      formaPagamento: FORMA_PAGAMENTO_FINANCEIRO.DINHEIRO,
+    };
+    const { service, contaModel, categoriaModel, tituloModel, movimentoModel } = createService();
+
+    movimentoModel.findOne.mockReturnValue(execResult(null));
+    categoriaModel.findOne
+      .mockReturnValueOnce(execResult(categoria))
+      .mockReturnValueOnce(execResult(categoria));
+    tituloModel.findOne.mockReturnValue(execResult(titulo));
+    contaModel.findOne
+      .mockReturnValueOnce(execResult(conta))
+      .mockReturnValueOnce(execResult(conta))
+      .mockReturnValueOnce(execResult(conta));
+    movimentoModel.create.mockResolvedValue(movimento);
+    contaModel.findOneAndUpdate.mockReturnValue(execResult({
+      ...conta,
+      saldoAtual: Types.Decimal128.fromString('110.00'),
+    }));
+    tituloModel.findOneAndUpdate
+      .mockReturnValueOnce(execResult(titulo))
+      .mockReturnValueOnce(execResult(tituloAtualizado));
+
+    const result = await service.registrarPagamentoVenda({
+      _id: pagamentoId,
+      vendaId,
+      formaPagamento: 'dinheiro',
+      valor: Types.Decimal128.fromString('100.00'),
+      dataPagamento: new Date('2026-08-01'),
+    }, {
+      _id: vendaId,
+      empresaId,
+      clienteId,
+      total: Types.Decimal128.fromString('100.00'),
+      criadoEm: new Date('2026-08-01'),
+      statusFinanceiro: 'pendente',
+    }, new Types.ObjectId().toString(), empresaId.toString());
+
+    expect(movimentoModel.create).toHaveBeenCalledWith(expect.objectContaining({
+      tipo: MOVIMENTO_CAIXA_TIPO.ENTRADA,
+      origemTipo: 'pagamento_venda',
+      status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+    }));
+    expect(movimentoModel.create.mock.calls[0][0].valor.toString()).toBe('100.00');
+    expect(contaModel.findOneAndUpdate.mock.calls[0][1].saldoAtual.toString()).toBe('110.00');
+    expect(result.titulo).toBe(tituloAtualizado);
+    expect(result.movimento).toBe(movimento);
   });
 });

@@ -14,6 +14,7 @@ import { UpdateItensPedidoCompraDto } from './dto/update-itens-pedido-compra.dto
 import { MOVIMENTO_ESTOQUE_ORIGEM, MOVIMENTO_ESTOQUE_TIPO } from '../estoque/movimento-estoque.types';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
+import { FinanceiroAdmService } from '../financeiro/financeiro-adm/financeiro-adm.service';
 
 const PEDIDO_COMPRA_STATUS_RECEBIDO = 'recebido';
 
@@ -25,6 +26,7 @@ export class ComprasService {
     @InjectModel(ItensPedidoCompra.name) private itensPedidoCompraModel: Model<ItensPedidoCompraDocument>,
     @InjectModel(MovimentosEstoque.name) private movimentosEstoqueModel: Model<MovimentosEstoqueDocument>,
     private readonly auditoriaService: AuditoriaService,
+    private readonly financeiroAdmService: FinanceiroAdmService,
   ) { }
 
   // Fornecedor CRUD
@@ -131,7 +133,7 @@ export class ComprasService {
             produtoId: String(item.produtoId),
             quantidade: Number(item.quantidade),
             valorUnitario: String(item.valorUnitario),
-          }, actorId, actorEmpresaId);
+          }, actorId, actorEmpresaId, false);
         }
       } else {
         console.warn('Nenhum item recebido para este pedido.');
@@ -142,6 +144,8 @@ export class ComprasService {
       if (actorId) {
         await this.registrarAuditoriaPedidoCompra(pedido, actorId, 'criado');
       }
+
+      await this.sincronizarFinanceiroPedidoCompraPorId(pedido._id.toString(), actorId, actorEmpresaId);
 
       // Retorna o pedido completo com itens
       return await this.findOnePedidoCompra(pedido._id.toString(), actorEmpresaId);
@@ -183,6 +187,21 @@ export class ComprasService {
         await this.assertFornecedorPertenceEmpresa(pedidoDto.fornecedorId, actorEmpresaId);
       }
 
+      if (this.isStatusCancelado(pedidoDto.status)) {
+        const pedidoAtual = await this.pedidosCompraModel.findOne(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
+        if (!pedidoAtual) {
+          throw new NotFoundException('Pedido de compra nao encontrado');
+        }
+
+        await this.financeiroAdmService.cancelarTituloPorOrigem(
+          pedidoAtual.empresaId.toString(),
+          'pedido_compra',
+          id,
+          actorId,
+          actorEmpresaId,
+        );
+      }
+
       // Update the main pedido document
       const pedido = await this.pedidosCompraModel.findOneAndUpdate(
         this.getEmpresaQuery(actorEmpresaId, { _id: id }),
@@ -207,7 +226,7 @@ export class ComprasService {
               produtoId: String(item.produtoId),
               quantidade: Number(item.quantidade),
               valorUnitario: String(item.valorUnitario),
-            }, actorId, actorEmpresaId);
+            }, actorId, actorEmpresaId, false);
           }
         }
       }
@@ -217,6 +236,8 @@ export class ComprasService {
       if (actorId) {
         await this.registrarAuditoriaPedidoCompra(pedido, actorId, 'atualizado');
       }
+
+      await this.sincronizarFinanceiroPedidoCompraPorId(id, actorId, actorEmpresaId);
 
       return await this.findOnePedidoCompra(id, actorEmpresaId);
     } catch (error) {
@@ -231,6 +252,14 @@ export class ComprasService {
       throw new NotFoundException('Pedido de compra nao encontrado');
     }
 
+    await this.financeiroAdmService.cancelarTituloPorOrigem(
+      pedido.empresaId.toString(),
+      'pedido_compra',
+      id,
+      actorId,
+      actorEmpresaId,
+    );
+
     await this.removerEntradasEstoquePedido(id);
     const removed = await this.pedidosCompraModel.findOneAndDelete(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
 
@@ -242,7 +271,12 @@ export class ComprasService {
   }
 
   // ItensPedidoCompra CRUD
-  async createItensPedidoCompra(createItensPedidoCompraDto: CreateItensPedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
+  async createItensPedidoCompra(
+    createItensPedidoCompraDto: CreateItensPedidoCompraDto,
+    actorId?: string,
+    actorEmpresaId?: string,
+    syncFinanceiro = true,
+  ) {
     try {
       await this.assertPedidoCompraPertenceEmpresa(createItensPedidoCompraDto.pedidoCompraId, actorEmpresaId);
 
@@ -267,6 +301,10 @@ export class ComprasService {
 
       if (actorId) {
         await this.registrarAuditoriaItemPedidoCompra(saved, actorId, 'criado');
+      }
+
+      if (syncFinanceiro) {
+        await this.sincronizarFinanceiroPedidoCompraPorId(createItensPedidoCompraDto.pedidoCompraId, actorId, actorEmpresaId);
       }
 
       return saved;
@@ -309,6 +347,7 @@ export class ComprasService {
     if (!existing) {
       throw new NotFoundException('Item de pedido de compra nao encontrado');
     }
+    const pedidoCompraIdAnterior = existing.pedidoCompraId.toString();
 
     await this.assertPedidoCompraPertenceEmpresa(
       (updateItensPedidoCompraDto.pedidoCompraId ?? existing.pedidoCompraId).toString(),
@@ -323,6 +362,14 @@ export class ComprasService {
 
     if (actorId && item) {
       await this.registrarAuditoriaItemPedidoCompra(item, actorId, 'atualizado');
+    }
+
+    if (item) {
+      await this.sincronizarFinanceiroPedidoCompraPorId(pedidoCompraIdAnterior, actorId, actorEmpresaId);
+      const pedidoCompraIdAtual = item.pedidoCompraId.toString();
+      if (pedidoCompraIdAtual !== pedidoCompraIdAnterior) {
+        await this.sincronizarFinanceiroPedidoCompraPorId(pedidoCompraIdAtual, actorId, actorEmpresaId);
+      }
     }
 
     return item;
@@ -341,6 +388,8 @@ export class ComprasService {
     if (actorId && item) {
       await this.registrarAuditoriaItemPedidoCompra(item, actorId, 'removido');
     }
+
+    await this.sincronizarFinanceiroPedidoCompraPorId(existing.pedidoCompraId.toString(), actorId, actorEmpresaId);
 
     return item;
   }
@@ -409,6 +458,11 @@ export class ComprasService {
     return empresaId ? { ...base, empresaId } : base;
   }
 
+  private isStatusCancelado(status?: string) {
+    const normalized = String(status ?? '').trim().toLowerCase();
+    return ['cancelado', 'cancelada', 'cancelled', 'canceled'].includes(normalized);
+  }
+
   private assertEmpresaPermitida(empresaId?: string, actorEmpresaId?: string) {
     if (actorEmpresaId && empresaId && String(empresaId) !== String(actorEmpresaId)) {
       throw new BadRequestException('Empresa do registro nao corresponde a empresa do usuario autenticado.');
@@ -440,6 +494,25 @@ export class ComprasService {
   private async getPedidoCompraIdsEmpresa(empresaId: string) {
     const pedidos = await this.pedidosCompraModel.find({ empresaId }).select('_id').lean().exec();
     return pedidos.map((pedido) => pedido._id);
+  }
+
+  private async sincronizarFinanceiroPedidoCompraPorId(pedidoCompraId: string, actorId?: string, actorEmpresaId?: string) {
+    const pedido = await this.pedidosCompraModel.findOne(this.getEmpresaQuery(actorEmpresaId, { _id: pedidoCompraId })).exec();
+    if (!pedido) {
+      return;
+    }
+
+    const total = await this.calcularTotalPedidoCompra(pedidoCompraId);
+    await this.financeiroAdmService.sincronizarTituloCompraPedido(pedido, total, actorId, actorEmpresaId);
+  }
+
+  private async calcularTotalPedidoCompra(pedidoCompraId: string) {
+    const itens = await this.itensPedidoCompraModel.find({ pedidoCompraId }).lean().exec();
+
+    return itens.reduce((sum, item: any) => {
+      const decimalValue = item.valorUnitario?.$numberDecimal ?? item.valorUnitario?.toString?.() ?? '0';
+      return sum + Number(decimalValue) * Number(item.quantidade ?? 0);
+    }, 0);
   }
 
   private async registrarAuditoriaFornecedor(
