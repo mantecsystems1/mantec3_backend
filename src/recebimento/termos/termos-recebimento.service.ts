@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { createHash } from 'crypto';
 import { Model } from 'mongoose';
 import { TermosRecebimento, TermosRecebimentoDocument } from './termos-recebimento.schema';
 import { CreateTermosRecebimentoDto } from './dto/create-termos-recebimento.dto';
@@ -12,7 +13,9 @@ export class TermosRecebimentoService {
   ) {}
 
   create(createTermosRecebimentoDto: CreateTermosRecebimentoDto) {
-    const createdTermosRecebimento = new this.termosRecebimentoModel(createTermosRecebimentoDto);
+    const createdTermosRecebimento = new this.termosRecebimentoModel(
+      this.montarDadosTermo(createTermosRecebimentoDto),
+    );
     return createdTermosRecebimento.save();
   }
 
@@ -25,10 +28,35 @@ export class TermosRecebimentoService {
   }
 
   update(id: string, updateTermosRecebimentoDto: UpdateTermosRecebimentoDto) {
-    return this.termosRecebimentoModel.findByIdAndUpdate(id, updateTermosRecebimentoDto, { new: true }).exec();
+    return this.termosRecebimentoModel.findByIdAndUpdate(id, this.montarDadosTermo(updateTermosRecebimentoDto), { new: true }).exec();
   }
 
   remove(id: string) {
     return this.termosRecebimentoModel.findByIdAndDelete(id).exec();
+  }
+
+  private montarDadosTermo(dto: CreateTermosRecebimentoDto | UpdateTermosRecebimentoDto) {
+    const data: Record<string, unknown> = { ...dto };
+    if (typeof dto.texto === 'string') {
+      data.termoHashSha256 = this.hashString(dto.texto);
+    }
+
+    if (typeof dto.assinaturaImagemBase64 === 'string' && dto.assinaturaImagemBase64.trim()) {
+      data.assinaturaHashSha256 = this.hashString(dto.assinaturaImagemBase64);
+    }
+
+    if (dto.assinado && !dto.dataAssinatura) {
+      data.dataAssinatura = new Date();
+    }
+
+    if (dto.dataAssinatura) {
+      data.dataAssinatura = new Date(dto.dataAssinatura);
+    }
+
+    return data;
+  }
+
+  private hashString(value: string) {
+    return createHash('sha256').update(value, 'utf8').digest('hex');
   }
 }

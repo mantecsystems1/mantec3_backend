@@ -16,6 +16,27 @@ export class MidiasRecebimento {
 
   @Prop()
   descricao: string;
+
+  @Prop()
+  nomeOriginal?: string;
+
+  @Prop()
+  nomeArquivo?: string;
+
+  @Prop()
+  mimeType?: string;
+
+  @Prop()
+  tamanhoBytes?: number;
+
+  @Prop()
+  hashSha256?: string;
+
+  @Prop()
+  origemCaptura?: string;
+
+  @Prop()
+  capturadoEm?: Date;
 }
 
 export const MidiasRecebimentoSchema = SchemaFactory.createForClass(MidiasRecebimento);

@@ -21,4 +21,36 @@ export class CreateTermosRecebimentoDto {
   @Type(() => Date)
   @IsDate()
   dataAssinatura?: Date;
+
+  @IsOptional()
+  @IsString()
+  signatarioNome?: string;
+
+  @IsOptional()
+  @IsString()
+  signatarioDocumento?: string;
+
+  @IsOptional()
+  @IsString()
+  assinaturaImagemBase64?: string;
+
+  @IsOptional()
+  @IsString()
+  assinaturaHashSha256?: string;
+
+  @IsOptional()
+  @IsString()
+  termoHashSha256?: string;
+
+  @IsOptional()
+  @IsString()
+  ipAssinatura?: string;
+
+  @IsOptional()
+  @IsString()
+  userAgentAssinatura?: string;
+
+  @IsOptional()
+  @IsString()
+  observacoesAssinatura?: string;
 }

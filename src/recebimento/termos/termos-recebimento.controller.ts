@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from '@nestjs/common';
 import { TermosRecebimentoService } from './termos-recebimento.service';
 import { CreateTermosRecebimentoDto } from './dto/create-termos-recebimento.dto';
 import { UpdateTermosRecebimentoDto } from './dto/update-termos-recebimento.dto';
@@ -8,8 +8,8 @@ export class TermosRecebimentoController {
   constructor(private readonly termosRecebimentoService: TermosRecebimentoService) {}
 
   @Post()
-  create(@Body() createTermosRecebimentoDto: CreateTermosRecebimentoDto) {
-    return this.termosRecebimentoService.create(createTermosRecebimentoDto);
+  create(@Body() createTermosRecebimentoDto: CreateTermosRecebimentoDto, @Req() req: any) {
+    return this.termosRecebimentoService.create(this.comMetadadosAssinatura(createTermosRecebimentoDto, req));
   }
 
   @Get()
@@ -23,12 +23,33 @@ export class TermosRecebimentoController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateTermosRecebimentoDto: UpdateTermosRecebimentoDto) {
-    return this.termosRecebimentoService.update(id, updateTermosRecebimentoDto);
+  update(@Param('id') id: string, @Body() updateTermosRecebimentoDto: UpdateTermosRecebimentoDto, @Req() req: any) {
+    return this.termosRecebimentoService.update(id, this.comMetadadosAssinatura(updateTermosRecebimentoDto, req));
   }
 
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.termosRecebimentoService.remove(id);
+  }
+
+  private comMetadadosAssinatura<T extends CreateTermosRecebimentoDto | UpdateTermosRecebimentoDto>(dto: T, req: any): T {
+    if (!dto.assinado) {
+      return dto;
+    }
+
+    return {
+      ...dto,
+      ipAssinatura: dto.ipAssinatura || this.getClientIp(req),
+      userAgentAssinatura: dto.userAgentAssinatura || req?.headers?.['user-agent'],
+    };
+  }
+
+  private getClientIp(req: any) {
+    const forwardedFor = req?.headers?.['x-forwarded-for'];
+    if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+      return forwardedFor.split(',')[0].trim();
+    }
+
+    return req?.ip || req?.socket?.remoteAddress;
   }
 }

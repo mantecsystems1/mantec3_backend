@@ -12,7 +12,11 @@ export class MidiasRecebimentoService {
   ) {}
 
   create(createMidiasRecebimentoDto: CreateMidiasRecebimentoDto) {
-    const createdMidiasRecebimento = new this.midiasRecebimentoModel(createMidiasRecebimentoDto);
+    const createdMidiasRecebimento = new this.midiasRecebimentoModel({
+      ...createMidiasRecebimentoDto,
+      urlArquivo: this.normalizarUrlArquivo(createMidiasRecebimentoDto.urlArquivo),
+      capturadoEm: this.toOptionalDate(createMidiasRecebimentoDto.capturadoEm),
+    });
     return createdMidiasRecebimento.save();
   }
 
@@ -25,10 +29,42 @@ export class MidiasRecebimentoService {
   }
 
   update(id: string, updateMidiasRecebimentoDto: UpdateMidiasRecebimentoDto) {
-    return this.midiasRecebimentoModel.findByIdAndUpdate(id, updateMidiasRecebimentoDto, { new: true }).exec();
+    const updateData = {
+      ...updateMidiasRecebimentoDto,
+      ...(updateMidiasRecebimentoDto.urlArquivo
+        ? { urlArquivo: this.normalizarUrlArquivo(updateMidiasRecebimentoDto.urlArquivo) }
+        : {}),
+      ...(updateMidiasRecebimentoDto.capturadoEm
+        ? { capturadoEm: this.toOptionalDate(updateMidiasRecebimentoDto.capturadoEm) }
+        : {}),
+    };
+
+    return this.midiasRecebimentoModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
   }
 
   remove(id: string) {
     return this.midiasRecebimentoModel.findByIdAndDelete(id).exec();
+  }
+
+  private normalizarUrlArquivo(urlArquivo: string) {
+    const value = String(urlArquivo ?? '').trim().replace(/\\/g, '/');
+    if (!value || /^https?:\/\//i.test(value)) {
+      return value;
+    }
+
+    const clean = value
+      .replace(/^\/+/, '')
+      .replace(/^(uploads\/)+/i, 'uploads/');
+
+    return clean.startsWith('uploads/') ? `/${clean}` : `/uploads/${clean}`;
+  }
+
+  private toOptionalDate(value?: string) {
+    if (!value) {
+      return undefined;
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
   }
 }
