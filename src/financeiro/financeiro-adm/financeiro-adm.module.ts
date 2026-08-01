@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuditoriaModule } from '../../auditoria/auditoria.module';
+import { Empresa, EmpresaSchema } from '../../core/empresa/schemas/empresa.schema';
 import { FinanceiroAdmController } from './financeiro-adm.controller';
 import { FinanceiroAdmService } from './financeiro-adm.service';
 import { ContaFinanceira, ContaFinanceiraSchema } from './schemas/conta-financeira.schema';
@@ -8,6 +9,7 @@ import { CategoriaFinanceira, CategoriaFinanceiraSchema } from './schemas/catego
 import { TituloFinanceiro, TituloFinanceiroSchema } from './schemas/titulo-financeiro.schema';
 import { MovimentoCaixa, MovimentoCaixaSchema } from './schemas/movimento-caixa.schema';
 import { RecorrenciaFinanceira, RecorrenciaFinanceiraSchema } from './schemas/recorrencia-financeira.schema';
+import { AnexoFinanceiro, AnexoFinanceiroSchema } from './schemas/anexo-financeiro.schema';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { RecorrenciaFinanceira, RecorrenciaFinanceiraSchema } from './schemas/re
       { name: TituloFinanceiro.name, schema: TituloFinanceiroSchema },
       { name: MovimentoCaixa.name, schema: MovimentoCaixaSchema },
       { name: RecorrenciaFinanceira.name, schema: RecorrenciaFinanceiraSchema },
+      { name: AnexoFinanceiro.name, schema: AnexoFinanceiroSchema },
+      { name: Empresa.name, schema: EmpresaSchema },
     ]),
   ],
   controllers: [FinanceiroAdmController],

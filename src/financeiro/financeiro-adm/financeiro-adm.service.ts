@@ -1,8 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { createHash } from 'crypto';
+import { readFileSync } from 'fs';
 import { Model, Types } from 'mongoose';
 import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../../auditoria/auditoria-eventos';
+import { Empresa, EmpresaDocument } from '../../core/empresa/schemas/empresa.schema';
+import { SimplePdfBuilder } from '../../documentos/simple-pdf';
+import { CreateAnexoFinanceiroDto } from './dto/create-anexo-financeiro.dto';
 import { CreateContaFinanceiraDto } from './dto/create-conta-financeira.dto';
 import { UpdateContaFinanceiraDto } from './dto/update-conta-financeira.dto';
 import { CreateCategoriaFinanceiraDto } from './dto/create-categoria-financeira.dto';
@@ -15,11 +20,15 @@ import { EstornarMovimentoCaixaDto } from './dto/estornar-movimento-caixa.dto';
 import { CreateRecorrenciaFinanceiraDto } from './dto/create-recorrencia-financeira.dto';
 import { UpdateRecorrenciaFinanceiraDto } from './dto/update-recorrencia-financeira.dto';
 import { GerarRecorrenciasFinanceirasDto } from './dto/gerar-recorrencias-financeiras.dto';
+import { ListAnexosFinanceirosQueryDto } from './dto/list-anexos-financeiros-query.dto';
+import { RelatorioMensalFinanceiroQueryDto } from './dto/relatorio-mensal-financeiro-query.dto';
 import { ContaFinanceira, ContaFinanceiraDocument } from './schemas/conta-financeira.schema';
 import { CategoriaFinanceira, CategoriaFinanceiraDocument } from './schemas/categoria-financeira.schema';
 import { TituloFinanceiro, TituloFinanceiroDocument } from './schemas/titulo-financeiro.schema';
 import { MovimentoCaixa, MovimentoCaixaDocument } from './schemas/movimento-caixa.schema';
 import { RecorrenciaFinanceira, RecorrenciaFinanceiraDocument } from './schemas/recorrencia-financeira.schema';
+import { AnexoFinanceiro, AnexoFinanceiroDocument, ANEXO_FINANCEIRO_VINCULO_TIPO } from './schemas/anexo-financeiro.schema';
+import { buildSimpleXlsx, SimpleXlsxSheet } from './simple-xlsx';
 import {
   CATEGORIA_FINANCEIRA_CLASSIFICACAO,
   CATEGORIA_FINANCEIRA_TIPO,
@@ -87,6 +96,44 @@ interface BaixarTituloIntegradoInput {
   observacoes?: string;
 }
 
+interface UploadedFinanceiroFile {
+  originalname: string;
+  filename: string;
+  mimetype: string;
+  size: number;
+  path: string;
+}
+
+interface PeriodoRelatorio {
+  competencia: string;
+  inicio: Date;
+  fim: Date;
+}
+
+export interface RelatorioFinanceiroMensalDados {
+  empresa: any;
+  periodo: PeriodoRelatorio;
+  contas: any[];
+  categorias: any[];
+  movimentos: any[];
+  titulos: any[];
+  recorrencias: any[];
+  anexos: any[];
+  resumo: {
+    saldoContasCentavos: number;
+    entradasCentavos: number;
+    saidasCentavos: number;
+    saldoPeriodoCentavos: number;
+    receberAbertoCentavos: number;
+    pagarAbertoCentavos: number;
+    despesasFixasCentavos: number;
+    proLaboreCentavos: number;
+    titulosVencidos: number;
+    quantidadeMovimentos: number;
+    quantidadeAnexos: number;
+  };
+}
+
 @Injectable()
 export class FinanceiroAdmService {
   constructor(
@@ -95,6 +142,8 @@ export class FinanceiroAdmService {
     @InjectModel(TituloFinanceiro.name) private tituloModel: Model<TituloFinanceiroDocument>,
     @InjectModel(MovimentoCaixa.name) private movimentoModel: Model<MovimentoCaixaDocument>,
     @InjectModel(RecorrenciaFinanceira.name) private recorrenciaModel: Model<RecorrenciaFinanceiraDocument>,
+    @InjectModel(AnexoFinanceiro.name) private anexoModel: Model<AnexoFinanceiroDocument>,
+    @InjectModel(Empresa.name) private empresaModel: Model<EmpresaDocument>,
     private readonly auditoriaService: AuditoriaService,
   ) {}
 
@@ -729,6 +778,368 @@ export class FinanceiroAdmService {
     };
   }
 
+  async getRelatorioMensalDados(query: RelatorioMensalFinanceiroQueryDto = {}, actorEmpresaId?: string): Promise<RelatorioFinanceiroMensalDados> {
+    const empresaId = this.requireEmpresaId(actorEmpresaId);
+    const periodo = this.montarPeriodoRelatorio(query);
+    const intervalo = { $gte: periodo.inicio, $lte: periodo.fim };
+
+    const [empresa, contas, categorias, movimentos, titulos, recorrencias, anexos] = await Promise.all([
+      this.empresaModel.findById(empresaId).lean().exec(),
+      this.contaModel.find(this.getEmpresaQuery(empresaId, { ativo: true })).lean().exec(),
+      this.categoriaModel.find(this.getEmpresaQuery(empresaId, { ativo: true })).lean().exec(),
+      this.movimentoModel
+        .find(this.getEmpresaQuery(empresaId, {
+          status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+          dataMovimento: intervalo,
+        }))
+        .populate('contaId', 'nome tipo')
+        .populate('categoriaId', 'nome tipo classificacao grupo')
+        .sort({ dataMovimento: 1 })
+        .lean()
+        .exec(),
+      this.tituloModel
+        .find(this.getEmpresaQuery(empresaId, {
+          $or: [
+            { dataCompetencia: intervalo },
+            { dataVencimento: intervalo },
+            { dataPagamento: intervalo },
+          ],
+        }))
+        .populate('categoriaId', 'nome tipo classificacao grupo')
+        .populate('contaId', 'nome tipo')
+        .sort({ dataVencimento: 1 })
+        .lean()
+        .exec(),
+      this.recorrenciaModel
+        .find(this.getEmpresaQuery(empresaId, {
+          status: RECORRENCIA_FINANCEIRA_STATUS.ATIVA,
+        }))
+        .populate('categoriaId', 'nome tipo classificacao grupo')
+        .populate('contaId', 'nome tipo')
+        .sort({ proximaCompetencia: 1 })
+        .lean()
+        .exec(),
+      this.findAllAnexos({
+        inicio: this.dateToInput(periodo.inicio),
+        fim: this.dateToInput(periodo.fim),
+      }, empresaId),
+    ]);
+
+    const entradasCentavos = movimentos
+      .filter((movimento) => movimento.tipo === MOVIMENTO_CAIXA_TIPO.ENTRADA)
+      .reduce((sum, movimento) => sum + dinheiroParaCentavos(movimento.valor), 0);
+    const saidasCentavos = movimentos
+      .filter((movimento) => movimento.tipo === MOVIMENTO_CAIXA_TIPO.SAIDA)
+      .reduce((sum, movimento) => sum + dinheiroParaCentavos(movimento.valor), 0);
+    const receberAbertoCentavos = titulos
+      .filter((titulo) => titulo.tipo === TITULO_FINANCEIRO_TIPO.RECEBER && this.isTituloAberto(titulo.status))
+      .reduce((sum, titulo) => sum + this.valorAbertoTituloCentavos(titulo), 0);
+    const pagarAbertoCentavos = titulos
+      .filter((titulo) => titulo.tipo === TITULO_FINANCEIRO_TIPO.PAGAR && this.isTituloAberto(titulo.status))
+      .reduce((sum, titulo) => sum + this.valorAbertoTituloCentavos(titulo), 0);
+    const despesasFixasCentavos = recorrencias
+      .filter((recorrencia) => recorrencia.tipoTitulo === TITULO_FINANCEIRO_TIPO.PAGAR)
+      .reduce((sum, recorrencia) => sum + dinheiroParaCentavos(recorrencia.valor), 0);
+    const proLaboreCentavos = movimentos
+      .filter((movimento) => movimento.tipo === MOVIMENTO_CAIXA_TIPO.SAIDA && this.isCategoriaProLabore(movimento.categoriaId))
+      .reduce((sum, movimento) => sum + dinheiroParaCentavos(movimento.valor), 0);
+    const saldoContasCentavos = contas.reduce((sum, conta) => sum + dinheiroParaCentavos(conta.saldoAtual), 0);
+    const hoje = new Date();
+    const titulosVencidos = titulos.filter((titulo) => this.isTituloAberto(titulo.status) && new Date(titulo.dataVencimento) < hoje).length;
+
+    return {
+      empresa,
+      periodo,
+      contas,
+      categorias,
+      movimentos,
+      titulos,
+      recorrencias,
+      anexos,
+      resumo: {
+        saldoContasCentavos,
+        entradasCentavos,
+        saidasCentavos,
+        saldoPeriodoCentavos: entradasCentavos - saidasCentavos,
+        receberAbertoCentavos,
+        pagarAbertoCentavos,
+        despesasFixasCentavos,
+        proLaboreCentavos,
+        titulosVencidos,
+        quantidadeMovimentos: movimentos.length,
+        quantidadeAnexos: anexos.length,
+      },
+    };
+  }
+
+  async gerarRelatorioMensalPdf(query: RelatorioMensalFinanceiroQueryDto = {}, actorId?: string, actorEmpresaId?: string) {
+    const dados = await this.getRelatorioMensalDados(query, actorEmpresaId);
+    const pdf = new SimplePdfBuilder();
+
+    pdf.addTitle('RELATORIO FINANCEIRO MENSAL');
+    pdf.addSection('Empresa');
+    pdf.addKeyValue('Nome fantasia', dados.empresa?.nomeFantasia || '-');
+    pdf.addKeyValue('Razao social', dados.empresa?.razaoSocial || '-');
+    pdf.addKeyValue('CNPJ', dados.empresa?.cnpj || '-');
+    pdf.addKeyValue('Competencia', dados.periodo.competencia);
+    pdf.addKeyValue('Periodo', `${this.formatDate(dados.periodo.inicio)} ate ${this.formatDate(dados.periodo.fim)}`);
+    pdf.addKeyValue('Gerado em', this.formatDateTime(new Date()));
+
+    pdf.addSection('Resumo');
+    pdf.addTable(
+      ['Indicador', 'Valor'],
+      [
+        ['Saldo em contas', this.formatMoneyCentavos(dados.resumo.saldoContasCentavos)],
+        ['Entradas', this.formatMoneyCentavos(dados.resumo.entradasCentavos)],
+        ['Saidas', this.formatMoneyCentavos(dados.resumo.saidasCentavos)],
+        ['Saldo do periodo', this.formatMoneyCentavos(dados.resumo.saldoPeriodoCentavos)],
+        ['A receber aberto', this.formatMoneyCentavos(dados.resumo.receberAbertoCentavos)],
+        ['A pagar aberto', this.formatMoneyCentavos(dados.resumo.pagarAbertoCentavos)],
+        ['Despesas fixas ativas', this.formatMoneyCentavos(dados.resumo.despesasFixasCentavos)],
+        ['Pro-labore', this.formatMoneyCentavos(dados.resumo.proLaboreCentavos)],
+        ['Titulos vencidos', String(dados.resumo.titulosVencidos)],
+        ['Anexos probatorios', String(dados.resumo.quantidadeAnexos)],
+      ],
+    );
+
+    pdf.addSection('Livro caixa');
+    pdf.addTable(
+      ['Data', 'Tipo', 'Descricao', 'Conta', 'Categoria', 'Valor'],
+      dados.movimentos.map((movimento) => [
+        this.formatDate(movimento.dataMovimento),
+        movimento.tipo,
+        movimento.descricao,
+        this.refNome(movimento.contaId),
+        this.refNome(movimento.categoriaId),
+        this.formatMoney(movimento.valor),
+      ]),
+    );
+
+    pdf.addSection('Titulos financeiros');
+    pdf.addTable(
+      ['Vencimento', 'Tipo', 'Descricao', 'Status', 'Aberto'],
+      dados.titulos.map((titulo) => [
+        this.formatDate(titulo.dataVencimento),
+        titulo.tipo,
+        titulo.descricao,
+        titulo.status,
+        this.formatMoneyCentavos(this.valorAbertoTituloCentavos(titulo)),
+      ]),
+    );
+
+    pdf.addSection('Anexos probatorios');
+    pdf.addTable(
+      ['Data', 'Descricao', 'Arquivo', 'SHA-256'],
+      dados.anexos.map((anexo) => [
+        this.formatDate(anexo.dataReferencia),
+        anexo.descricao || '-',
+        anexo.nomeOriginal,
+        String(anexo.hashSha256).slice(0, 20),
+      ]),
+    );
+    pdf.addWrapped('Hashes completos e URLs dos anexos estao disponiveis no arquivo Excel e na lista de anexos do fechamento mensal.');
+
+    await this.registrarAuditoriaRelatorio(dados.periodo, 'pdf', actorId, actorEmpresaId);
+    return pdf.build();
+  }
+
+  async gerarRelatorioMensalXlsx(query: RelatorioMensalFinanceiroQueryDto = {}, actorId?: string, actorEmpresaId?: string) {
+    const dados = await this.getRelatorioMensalDados(query, actorEmpresaId);
+    const sheets: SimpleXlsxSheet[] = [
+      {
+        name: 'Resumo',
+        rows: [
+          ['Relatorio financeiro mensal'],
+          ['Empresa', dados.empresa?.nomeFantasia || dados.empresa?.razaoSocial || '-'],
+          ['CNPJ', dados.empresa?.cnpj || '-'],
+          ['Competencia', dados.periodo.competencia],
+          ['Periodo inicio', this.formatDate(dados.periodo.inicio)],
+          ['Periodo fim', this.formatDate(dados.periodo.fim)],
+          ['Gerado em', this.formatDateTime(new Date())],
+          [],
+          ['Indicador', 'Valor'],
+          ['Saldo em contas', dados.resumo.saldoContasCentavos / 100],
+          ['Entradas', dados.resumo.entradasCentavos / 100],
+          ['Saidas', dados.resumo.saidasCentavos / 100],
+          ['Saldo do periodo', dados.resumo.saldoPeriodoCentavos / 100],
+          ['A receber aberto', dados.resumo.receberAbertoCentavos / 100],
+          ['A pagar aberto', dados.resumo.pagarAbertoCentavos / 100],
+          ['Despesas fixas ativas', dados.resumo.despesasFixasCentavos / 100],
+          ['Pro-labore', dados.resumo.proLaboreCentavos / 100],
+          ['Titulos vencidos', dados.resumo.titulosVencidos],
+          ['Movimentos', dados.resumo.quantidadeMovimentos],
+          ['Anexos probatorios', dados.resumo.quantidadeAnexos],
+        ],
+      },
+      {
+        name: 'Movimentos',
+        rows: [
+          ['Data', 'Tipo', 'Descricao', 'Conta', 'Categoria', 'Forma pagamento', 'Valor', 'Origem', 'Observacoes'],
+          ...dados.movimentos.map((movimento) => [
+            this.formatDate(movimento.dataMovimento),
+            movimento.tipo,
+            movimento.descricao,
+            this.refNome(movimento.contaId),
+            this.refNome(movimento.categoriaId),
+            movimento.formaPagamento,
+            dinheiroParaCentavos(movimento.valor) / 100,
+            movimento.origemTipo || '-',
+            movimento.observacoes || '-',
+          ]),
+        ],
+      },
+      {
+        name: 'Titulos',
+        rows: [
+          ['Competencia', 'Vencimento', 'Pagamento', 'Tipo', 'Descricao', 'Categoria', 'Conta', 'Total', 'Pago', 'Aberto', 'Status', 'Documento', 'Origem'],
+          ...dados.titulos.map((titulo) => [
+            this.formatDate(titulo.dataCompetencia),
+            this.formatDate(titulo.dataVencimento),
+            this.formatDate(titulo.dataPagamento),
+            titulo.tipo,
+            titulo.descricao,
+            this.refNome(titulo.categoriaId),
+            this.refNome(titulo.contaId),
+            dinheiroParaCentavos(titulo.valorTotal) / 100,
+            dinheiroParaCentavos(titulo.valorPago) / 100,
+            this.valorAbertoTituloCentavos(titulo) / 100,
+            titulo.status,
+            titulo.documentoNumero || '-',
+            titulo.origemTipo || '-',
+          ]),
+        ],
+      },
+      {
+        name: 'Despesas fixas',
+        rows: [
+          ['Descricao', 'Categoria', 'Conta', 'Valor', 'Frequencia', 'Dia vencimento', 'Proxima competencia', 'Status', 'Documento'],
+          ...dados.recorrencias.map((recorrencia) => [
+            recorrencia.descricao,
+            this.refNome(recorrencia.categoriaId),
+            this.refNome(recorrencia.contaId),
+            dinheiroParaCentavos(recorrencia.valor) / 100,
+            recorrencia.frequencia,
+            recorrencia.diaVencimento,
+            this.formatDate(recorrencia.proximaCompetencia),
+            recorrencia.status,
+            recorrencia.documentoNumero || '-',
+          ]),
+        ],
+      },
+      {
+        name: 'Anexos',
+        rows: [
+          ['Data referencia', 'Descricao', 'Vinculo', 'Arquivo original', 'Mime type', 'Tamanho bytes', 'URL', 'SHA-256'],
+          ...dados.anexos.map((anexo) => [
+            this.formatDate(anexo.dataReferencia),
+            anexo.descricao || '-',
+            anexo.vinculoTipo,
+            anexo.nomeOriginal,
+            anexo.mimeType,
+            anexo.tamanhoBytes,
+            anexo.urlArquivo,
+            anexo.hashSha256,
+          ]),
+        ],
+      },
+    ];
+
+    await this.registrarAuditoriaRelatorio(dados.periodo, 'xlsx', actorId, actorEmpresaId);
+    return buildSimpleXlsx(sheets);
+  }
+
+  findAllAnexos(query: ListAnexosFinanceirosQueryDto = {}, actorEmpresaId?: string) {
+    const empresaId = this.requireEmpresaId(actorEmpresaId);
+    const periodo = this.montarPeriodoRelatorio({
+      competencia: query.competencia,
+      inicio: query.inicio,
+      fim: query.fim,
+    });
+    const filtro: Record<string, unknown> = this.getEmpresaQuery(empresaId, {
+      ativo: true,
+      dataReferencia: { $gte: periodo.inicio, $lte: periodo.fim },
+    });
+    if (query.vinculoTipo) filtro.vinculoTipo = query.vinculoTipo;
+    if (query.vinculoId) filtro.vinculoId = this.toObjectId(query.vinculoId, 'vinculoId');
+
+    return this.anexoModel
+      .find(filtro)
+      .populate('enviadoPor', 'nome email')
+      .sort({ dataReferencia: -1, criadoEm: -1 })
+      .lean()
+      .exec();
+  }
+
+  async createAnexo(dto: CreateAnexoFinanceiroDto, file: UploadedFinanceiroFile | undefined, actorId?: string, actorEmpresaId?: string) {
+    if (!file) {
+      throw new BadRequestException('Arquivo do anexo e obrigatorio.');
+    }
+
+    const empresaId = actorEmpresaId ?? dto.empresaId;
+    this.assertEmpresaPermitida(empresaId, actorEmpresaId);
+    const empresaIdObrigatoria = this.requireEmpresaId(empresaId);
+    const periodo = this.montarPeriodoRelatorio({
+      competencia: dto.competencia,
+      inicio: dto.periodoInicio,
+      fim: dto.periodoFim,
+    });
+    const hashSha256 = createHash('sha256').update(readFileSync(file.path)).digest('hex');
+    const anexo = await this.anexoModel.create({
+      empresaId: this.toObjectId(empresaIdObrigatoria, 'empresaId'),
+      competencia: dto.competencia ?? periodo.competencia,
+      periodoInicio: periodo.inicio,
+      periodoFim: periodo.fim,
+      vinculoTipo: dto.vinculoTipo ?? ANEXO_FINANCEIRO_VINCULO_TIPO.FECHAMENTO_MENSAL,
+      vinculoId: this.toOptionalObjectId(dto.vinculoId, 'vinculoId'),
+      descricao: dto.descricao,
+      nomeOriginal: file.originalname,
+      nomeArquivo: file.filename,
+      mimeType: file.mimetype,
+      tamanhoBytes: file.size,
+      urlArquivo: `/uploads/financeiro-provas/${file.filename}`,
+      hashSha256,
+      dataReferencia: dto.dataReferencia ? this.toDate(dto.dataReferencia, 'dataReferencia') : new Date(),
+      enviadoPor: actorId ? this.toObjectId(actorId, 'usuarioId') : undefined,
+      ativo: true,
+    });
+
+    await this.registrarAuditoria(anexo, actorId, AUDITORIA_EVENTOS.ANEXO_FINANCEIRO_ADICIONADO, AUDITORIA_ENTIDADES.ANEXO_FINANCEIRO, {
+      descricao: anexo.descricao,
+      nomeOriginal: anexo.nomeOriginal,
+      hashSha256,
+      competencia: anexo.competencia,
+    });
+
+    return anexo;
+  }
+
+  async removeAnexo(id: string, actorId?: string, actorEmpresaId?: string) {
+    const update: Record<string, unknown> = {
+      ativo: false,
+      removidoEm: new Date(),
+    };
+    if (actorId) {
+      update.removidoPor = this.toObjectId(actorId, 'usuarioId');
+    }
+
+    const anexo = await this.anexoModel
+      .findOneAndUpdate(this.getEmpresaQuery(actorEmpresaId, { _id: id }), update, { new: true })
+      .exec();
+
+    if (!anexo) {
+      throw new NotFoundException('Anexo financeiro nao encontrado.');
+    }
+
+    await this.registrarAuditoria(anexo, actorId, AUDITORIA_EVENTOS.ANEXO_FINANCEIRO_REMOVIDO, AUDITORIA_ENTIDADES.ANEXO_FINANCEIRO, {
+      descricao: anexo.descricao,
+      nomeOriginal: anexo.nomeOriginal,
+      hashSha256: anexo.hashSha256,
+      operacao: 'inativado',
+    });
+
+    return anexo;
+  }
+
   async sincronizarTituloVenda(venda: any, actorId?: string, actorEmpresaId?: string) {
     const empresaId = venda.empresaId?.toString();
     const vendaId = venda._id?.toString();
@@ -1241,6 +1652,135 @@ export class FinanceiroAdmService {
     await this.contaModel
       .findOneAndUpdate(this.getEmpresaQuery(empresaId, { _id: contaId }), { saldoAtual: centavosParaDecimal128(novoSaldo) }, { new: true })
       .exec();
+  }
+
+  private montarPeriodoRelatorio(query: RelatorioMensalFinanceiroQueryDto = {}): PeriodoRelatorio {
+    if (query.competencia) {
+      const [yearText, monthText] = query.competencia.split('-');
+      const year = Number(yearText);
+      const month = Number(monthText);
+      if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+        throw new BadRequestException('Competencia invalida. Use o formato YYYY-MM.');
+      }
+
+      return {
+        competencia: query.competencia,
+        inicio: new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0)),
+        fim: new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)),
+      };
+    }
+
+    const now = new Date();
+    const inicio = query.inicio
+      ? this.inicioDoDia(this.toDate(query.inicio, 'inicio'))
+      : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    const fim = query.fim
+      ? this.fimDoDia(this.toDate(query.fim, 'fim'))
+      : new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+
+    if (fim < inicio) {
+      throw new BadRequestException('Data final nao pode ser anterior a data inicial.');
+    }
+
+    return {
+      competencia: `${inicio.getUTCFullYear()}-${String(inicio.getUTCMonth() + 1).padStart(2, '0')}`,
+      inicio,
+      fim,
+    };
+  }
+
+  private inicioDoDia(date: Date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
+  }
+
+  private fimDoDia(date: Date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999));
+  }
+
+  private dateToInput(date: Date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private isTituloAberto(status?: string) {
+    return status === TITULO_FINANCEIRO_STATUS.ABERTO || status === TITULO_FINANCEIRO_STATUS.PARCIAL;
+  }
+
+  private valorAbertoTituloCentavos(titulo: { valorTotal?: unknown; valorPago?: unknown }) {
+    return Math.max(0, dinheiroParaCentavos(titulo.valorTotal) - dinheiroParaCentavos(titulo.valorPago));
+  }
+
+  private isCategoriaProLabore(categoria: unknown) {
+    const record = categoria && typeof categoria === 'object' ? categoria as Record<string, unknown> : {};
+    const nome = String(record.nome ?? '');
+    const grupo = String(record.grupo ?? '');
+    return this.normalizarBusca(nome).includes('prolabore') || this.normalizarBusca(grupo).includes('prolabore');
+  }
+
+  private normalizarBusca(value: string) {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+  }
+
+  private formatDate(value: unknown) {
+    if (!value) return '-';
+    const date = new Date(String(value));
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  }
+
+  private formatDateTime(value: Date) {
+    return value.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  private formatMoney(value: unknown) {
+    return this.formatMoneyCentavos(dinheiroParaCentavos(value));
+  }
+
+  private formatMoneyCentavos(centavos: number) {
+    return (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  private refNome(value: unknown) {
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      if (typeof record.nome === 'string') return record.nome;
+      if (record._id) return String(record._id);
+    }
+
+    return value ? String(value) : '-';
+  }
+
+  private requireEmpresaId(empresaId?: string) {
+    if (!empresaId) {
+      throw new BadRequestException('Empresa do usuario autenticado e obrigatoria para esta operacao.');
+    }
+
+    return empresaId;
+  }
+
+  private async registrarAuditoriaRelatorio(periodo: PeriodoRelatorio, formato: string, actorId?: string, actorEmpresaId?: string) {
+    if (!actorId || !actorEmpresaId) {
+      return;
+    }
+
+    await this.registrarAuditoria(
+      {
+        _id: new Types.ObjectId(),
+        empresaId: this.toObjectId(actorEmpresaId, 'empresaId'),
+      },
+      actorId,
+      AUDITORIA_EVENTOS.RELATORIO_FINANCEIRO_GERADO,
+      AUDITORIA_ENTIDADES.RELATORIO_FINANCEIRO,
+      {
+        formato,
+        competencia: periodo.competencia,
+        inicio: periodo.inicio,
+        fim: periodo.fim,
+      },
+    );
   }
 
   private montarQueryTitulos(empresaId?: string, filtros: FiltrosFinanceiros = {}) {

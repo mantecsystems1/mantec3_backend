@@ -33,8 +33,12 @@ export function wrapText(text: string, maxChars = 92) {
 }
 
 export class SimplePdfBuilder {
-  private lines: PdfLine[] = [];
+  private pages: PdfLine[][] = [[]];
   private y = 790;
+
+  private get currentLines() {
+    return this.pages[this.pages.length - 1];
+  }
 
   addTitle(text: string) {
     this.addLine(text, { size: 18, bold: true, gapAfter: 18 });
@@ -46,7 +50,11 @@ export class SimplePdfBuilder {
 
   addLine(text: string, options: { size?: number; bold?: boolean; gapBefore?: number; gapAfter?: number; x?: number } = {}) {
     this.y -= options.gapBefore ?? 0;
-    this.lines.push({
+    if (this.y < 48) {
+      this.addPage();
+    }
+
+    this.currentLines.push({
       text,
       x: options.x ?? 42,
       y: this.y,
@@ -75,23 +83,33 @@ export class SimplePdfBuilder {
   }
 
   build() {
-    const content = [
-      'BT',
-      ...this.lines.map((line) => {
-        const font = line.bold ? '/F2' : '/F1';
-        return `${font} ${line.size ?? 9} Tf ${line.x} ${line.y} Td (${escapePdfText(line.text)}) Tj`;
-      }),
-      'ET',
-    ].join('\n');
+    const pageCount = this.pages.length;
+    const pageObjectStart = 5;
+    const pageObjectIds = this.pages.map((_, index) => pageObjectStart + index * 2);
+    const contentObjectIds = this.pages.map((_, index) => pageObjectStart + index * 2 + 1);
 
     const objects = [
       '<< /Type /Catalog /Pages 2 0 R >>',
-      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>',
+      `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageCount} >>`,
       '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
       '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>',
-      `<< /Length ${Buffer.byteLength(content, 'utf8')} >>\nstream\n${content}\nendstream`,
     ];
+
+    for (let index = 0; index < this.pages.length; index += 1) {
+      const content = [
+        'BT',
+        ...this.pages[index].map((line) => {
+          const font = line.bold ? '/F2' : '/F1';
+          return `${font} ${line.size ?? 9} Tf ${line.x} ${line.y} Td (${escapePdfText(line.text)}) Tj`;
+        }),
+        'ET',
+      ].join('\n');
+
+      objects.push(
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`,
+        `<< /Length ${Buffer.byteLength(content, 'utf8')} >>\nstream\n${content}\nendstream`,
+      );
+    }
 
     const chunks = ['%PDF-1.4\n'];
     const offsets = [0];
@@ -109,5 +127,10 @@ export class SimplePdfBuilder {
     chunks.push(`trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
 
     return Buffer.from(chunks.join(''), 'utf8');
+  }
+
+  private addPage() {
+    this.pages.push([]);
+    this.y = 790;
   }
 }

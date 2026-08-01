@@ -64,6 +64,14 @@ describe('FinanceiroAdmService', () => {
       findOneAndUpdate: jest.fn(),
       findByIdAndUpdate: jest.fn(),
     };
+    const anexoModel = {
+      create: jest.fn(),
+      find: jest.fn(),
+      findOneAndUpdate: jest.fn(),
+    };
+    const empresaModel = {
+      findById: jest.fn(),
+    };
     const auditoriaService = {
       registrarEventoNegocio: jest.fn().mockResolvedValue(undefined),
     };
@@ -74,6 +82,8 @@ describe('FinanceiroAdmService', () => {
       tituloModel as never,
       movimentoModel as never,
       recorrenciaModel as never,
+      anexoModel as never,
+      empresaModel as never,
       auditoriaService as never,
     );
 
@@ -83,6 +93,9 @@ describe('FinanceiroAdmService', () => {
       categoriaModel,
       tituloModel,
       movimentoModel,
+      recorrenciaModel,
+      anexoModel,
+      empresaModel,
       auditoriaService,
     };
   };
@@ -363,5 +376,75 @@ describe('FinanceiroAdmService', () => {
     expect(contaModel.findOneAndUpdate.mock.calls[0][1].saldoAtual.toString()).toBe('110.00');
     expect(result.titulo).toBe(tituloAtualizado);
     expect(result.movimento).toBe(movimento);
+  });
+
+  it('monta relatorio mensal com resumo financeiro e anexos probatorios', async () => {
+    const empresaId = new Types.ObjectId().toString();
+    const { service, empresaModel, contaModel, categoriaModel, tituloModel, movimentoModel, recorrenciaModel, anexoModel } = createService();
+
+    empresaModel.findById.mockReturnValue(chainResult({
+      _id: empresaId,
+      nomeFantasia: 'Mantec',
+      cnpj: '00.000.000/0001-00',
+    }));
+    contaModel.find.mockReturnValue(chainResult([
+      { saldoAtual: Types.Decimal128.fromString('500.00') },
+    ]));
+    categoriaModel.find.mockReturnValue(chainResult([
+      { nome: 'Vendas', tipo: CATEGORIA_FINANCEIRA_TIPO.ENTRADA },
+      { nome: 'Pro-labore', tipo: CATEGORIA_FINANCEIRA_TIPO.SAIDA, grupo: 'prolabore' },
+    ]));
+    movimentoModel.find.mockReturnValue(chainResult([
+      {
+        tipo: MOVIMENTO_CAIXA_TIPO.ENTRADA,
+        valor: Types.Decimal128.fromString('1000.00'),
+        categoriaId: { nome: 'Vendas', grupo: 'receitas' },
+      },
+      {
+        tipo: MOVIMENTO_CAIXA_TIPO.SAIDA,
+        valor: Types.Decimal128.fromString('150.00'),
+        categoriaId: { nome: 'Pro-labore', grupo: 'prolabore' },
+      },
+    ]));
+    tituloModel.find.mockReturnValue(chainResult([
+      {
+        tipo: TITULO_FINANCEIRO_TIPO.RECEBER,
+        valorTotal: Types.Decimal128.fromString('300.00'),
+        valorPago: Types.Decimal128.fromString('100.00'),
+        status: TITULO_FINANCEIRO_STATUS.PARCIAL,
+        dataVencimento: new Date('2026-08-20'),
+      },
+      {
+        tipo: TITULO_FINANCEIRO_TIPO.PAGAR,
+        valorTotal: Types.Decimal128.fromString('80.00'),
+        valorPago: Types.Decimal128.fromString('0.00'),
+        status: TITULO_FINANCEIRO_STATUS.ABERTO,
+        dataVencimento: new Date('2026-08-21'),
+      },
+    ]));
+    recorrenciaModel.find.mockReturnValue(chainResult([
+      {
+        tipoTitulo: TITULO_FINANCEIRO_TIPO.PAGAR,
+        valor: Types.Decimal128.fromString('80.00'),
+      },
+    ]));
+    anexoModel.find.mockReturnValue(chainResult([
+      {
+        nomeOriginal: 'comprovante.pdf',
+        hashSha256: 'abc123',
+        dataReferencia: new Date('2026-08-01'),
+      },
+    ]));
+
+    const result = await service.getRelatorioMensalDados({ competencia: '2026-08' }, empresaId);
+
+    expect(result.periodo.competencia).toBe('2026-08');
+    expect(result.resumo.entradasCentavos).toBe(100000);
+    expect(result.resumo.saidasCentavos).toBe(15000);
+    expect(result.resumo.saldoPeriodoCentavos).toBe(85000);
+    expect(result.resumo.receberAbertoCentavos).toBe(20000);
+    expect(result.resumo.pagarAbertoCentavos).toBe(8000);
+    expect(result.resumo.proLaboreCentavos).toBe(15000);
+    expect(result.resumo.quantidadeAnexos).toBe(1);
   });
 });

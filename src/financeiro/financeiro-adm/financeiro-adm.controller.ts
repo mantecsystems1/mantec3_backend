@@ -1,4 +1,9 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { mkdirSync } from 'fs';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
+import type { Response } from 'express';
 import { AuthTokenGuard } from '../../common/guards/auth-token.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RequireEvento } from '../../common/decorators/require-evento.decorator';
@@ -18,11 +23,68 @@ import { EstornarMovimentoCaixaDto } from './dto/estornar-movimento-caixa.dto';
 import { CreateRecorrenciaFinanceiraDto } from './dto/create-recorrencia-financeira.dto';
 import { UpdateRecorrenciaFinanceiraDto } from './dto/update-recorrencia-financeira.dto';
 import { GerarRecorrenciasFinanceirasDto } from './dto/gerar-recorrencias-financeiras.dto';
+import { CreateAnexoFinanceiroDto } from './dto/create-anexo-financeiro.dto';
+import { ListAnexosFinanceirosQueryDto } from './dto/list-anexos-financeiros-query.dto';
+import { RelatorioMensalFinanceiroQueryDto } from './dto/relatorio-mensal-financeiro-query.dto';
+
+mkdirSync('./uploads/financeiro-provas', { recursive: true });
+
+const anexoFinanceiroStorage = diskStorage({
+  destination: './uploads/financeiro-provas',
+  filename: (_req, file, callback) => {
+    const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    callback(null, `prova-financeira-${suffix}${extname(file.originalname)}`);
+  },
+});
 
 @Controller('financeiro-adm')
 @UseGuards(AuthTokenGuard, PermissionGuard)
 export class FinanceiroAdmController {
   constructor(private readonly financeiroAdmService: FinanceiroAdmService) {}
+
+  @Get('relatorios/mensal')
+  @RequireEvento(EVENTOS_NEGOCIO.RELATORIO_FINANCEIRO_GERAR)
+  relatorioMensal(@Query() query: RelatorioMensalFinanceiroQueryDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.financeiroAdmService.getRelatorioMensalDados(query, user?.empresaId);
+  }
+
+  @Get('relatorios/mensal.pdf')
+  @RequireEvento(EVENTOS_NEGOCIO.RELATORIO_FINANCEIRO_GERAR)
+  async relatorioMensalPdf(@Query() query: RelatorioMensalFinanceiroQueryDto, @Res() res: Response, @CurrentUser() user?: CurrentUserPayload) {
+    const pdf = await this.financeiroAdmService.gerarRelatorioMensalPdf(query, user?.id, user?.empresaId);
+    this.sendArquivo(res, pdf, 'application/pdf', `relatorio-financeiro-${this.filenameCompetencia(query)}.pdf`);
+  }
+
+  @Get('relatorios/mensal.xlsx')
+  @RequireEvento(EVENTOS_NEGOCIO.RELATORIO_FINANCEIRO_GERAR)
+  async relatorioMensalXlsx(@Query() query: RelatorioMensalFinanceiroQueryDto, @Res() res: Response, @CurrentUser() user?: CurrentUserPayload) {
+    const xlsx = await this.financeiroAdmService.gerarRelatorioMensalXlsx(query, user?.id, user?.empresaId);
+    this.sendArquivo(
+      res,
+      xlsx,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      `relatorio-financeiro-${this.filenameCompetencia(query)}.xlsx`,
+    );
+  }
+
+  @Get('anexos')
+  @RequireEvento(EVENTOS_NEGOCIO.ANEXO_FINANCEIRO_CONSULTAR)
+  findAllAnexos(@Query() query: ListAnexosFinanceirosQueryDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.financeiroAdmService.findAllAnexos(query, user?.empresaId);
+  }
+
+  @Post('anexos/upload')
+  @RequireEvento(EVENTOS_NEGOCIO.ANEXO_FINANCEIRO_GERENCIAR)
+  @UseInterceptors(FileInterceptor('arquivo', { storage: anexoFinanceiroStorage, limits: { fileSize: 15 * 1024 * 1024 } }))
+  uploadAnexo(@UploadedFile() file: any, @Body() body: CreateAnexoFinanceiroDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.financeiroAdmService.createAnexo(body, file, user?.id, user?.empresaId);
+  }
+
+  @Delete('anexos/:id')
+  @RequireEvento(EVENTOS_NEGOCIO.ANEXO_FINANCEIRO_GERENCIAR)
+  removeAnexo(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.financeiroAdmService.removeAnexo(id, user?.id, user?.empresaId);
+  }
 
   @Post('contas')
   @RequireEvento(EVENTOS_NEGOCIO.CONTA_FINANCEIRA_GERENCIAR)
@@ -196,5 +258,20 @@ export class FinanceiroAdmController {
   @RequireEvento(EVENTOS_NEGOCIO.RECORRENCIA_FINANCEIRA_GERENCIAR)
   removeRecorrencia(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
     return this.financeiroAdmService.removeRecorrencia(id, user?.id, user?.empresaId);
+  }
+
+  private sendArquivo(res: Response, buffer: Buffer, contentType: string, filename: string) {
+    res.set({
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': buffer.length,
+    });
+    res.send(buffer);
+  }
+
+  private filenameCompetencia(query: RelatorioMensalFinanceiroQueryDto) {
+    if (query.competencia) return query.competencia;
+    if (query.inicio) return query.inicio.slice(0, 7);
+    return new Date().toISOString().slice(0, 7);
   }
 }
