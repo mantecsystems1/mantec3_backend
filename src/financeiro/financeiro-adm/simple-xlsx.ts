@@ -5,7 +5,7 @@ export interface SimpleXlsxSheet {
   rows: CellValue[][];
 }
 
-interface ZipEntry {
+export interface ZipEntry {
   path: string;
   content: Buffer;
 }
@@ -138,7 +138,7 @@ const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
 </styleSheet>`;
 
-const createZip = (entries: ZipEntry[]) => {
+export const createZip = (entries: ZipEntry[]) => {
   const localParts: Buffer[] = [];
   const centralParts: Buffer[] = [];
   let offset = 0;

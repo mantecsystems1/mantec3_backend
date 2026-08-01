@@ -10,6 +10,7 @@ import { TituloFinanceiro, TituloFinanceiroSchema } from './schemas/titulo-finan
 import { MovimentoCaixa, MovimentoCaixaSchema } from './schemas/movimento-caixa.schema';
 import { RecorrenciaFinanceira, RecorrenciaFinanceiraSchema } from './schemas/recorrencia-financeira.schema';
 import { AnexoFinanceiro, AnexoFinanceiroSchema } from './schemas/anexo-financeiro.schema';
+import { FechamentoMensalFinanceiro, FechamentoMensalFinanceiroSchema } from './schemas/fechamento-mensal-financeiro.schema';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { AnexoFinanceiro, AnexoFinanceiroSchema } from './schemas/anexo-financei
       { name: MovimentoCaixa.name, schema: MovimentoCaixaSchema },
       { name: RecorrenciaFinanceira.name, schema: RecorrenciaFinanceiraSchema },
       { name: AnexoFinanceiro.name, schema: AnexoFinanceiroSchema },
+      { name: FechamentoMensalFinanceiro.name, schema: FechamentoMensalFinanceiroSchema },
       { name: Empresa.name, schema: EmpresaSchema },
     ]),
   ],

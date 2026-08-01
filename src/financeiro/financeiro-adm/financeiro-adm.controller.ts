@@ -24,7 +24,9 @@ import { CreateRecorrenciaFinanceiraDto } from './dto/create-recorrencia-finance
 import { UpdateRecorrenciaFinanceiraDto } from './dto/update-recorrencia-financeira.dto';
 import { GerarRecorrenciasFinanceirasDto } from './dto/gerar-recorrencias-financeiras.dto';
 import { CreateAnexoFinanceiroDto } from './dto/create-anexo-financeiro.dto';
+import { FecharMesFinanceiroDto } from './dto/fechar-mes-financeiro.dto';
 import { ListAnexosFinanceirosQueryDto } from './dto/list-anexos-financeiros-query.dto';
+import { ReabrirMesFinanceiroDto } from './dto/reabrir-mes-financeiro.dto';
 import { RelatorioMensalFinanceiroQueryDto } from './dto/relatorio-mensal-financeiro-query.dto';
 
 mkdirSync('./uploads/financeiro-provas', { recursive: true });
@@ -65,6 +67,37 @@ export class FinanceiroAdmController {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       `relatorio-financeiro-${this.filenameCompetencia(query)}.xlsx`,
     );
+  }
+
+  @Get('relatorios/pacote-probatorio.zip')
+  @RequireEvento(EVENTOS_NEGOCIO.RELATORIO_FINANCEIRO_GERAR)
+  async pacoteProbatorioZip(@Query() query: RelatorioMensalFinanceiroQueryDto, @Res() res: Response, @CurrentUser() user?: CurrentUserPayload) {
+    const zip = await this.financeiroAdmService.gerarPacoteProbatorioZip(query, user?.id, user?.empresaId);
+    this.sendArquivo(res, zip, 'application/zip', `pacote-probatorio-${this.filenameCompetencia(query)}.zip`);
+  }
+
+  @Get('fechamentos')
+  @RequireEvento(EVENTOS_NEGOCIO.FECHAMENTO_MENSAL_GERENCIAR)
+  findAllFechamentos(@CurrentUser() user?: CurrentUserPayload) {
+    return this.financeiroAdmService.findAllFechamentosMensais(user?.empresaId);
+  }
+
+  @Get('fechamentos/mensal')
+  @RequireEvento(EVENTOS_NEGOCIO.FECHAMENTO_MENSAL_GERENCIAR)
+  findFechamentoMensal(@Query() query: RelatorioMensalFinanceiroQueryDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.financeiroAdmService.findFechamentoMensal(query, user?.empresaId);
+  }
+
+  @Post('fechamentos/fechar')
+  @RequireEvento(EVENTOS_NEGOCIO.FECHAMENTO_MENSAL_GERENCIAR)
+  fecharMesFinanceiro(@Body() dto: FecharMesFinanceiroDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.financeiroAdmService.fecharMesFinanceiro(dto, user?.id, user?.empresaId);
+  }
+
+  @Post('fechamentos/reabrir')
+  @RequireEvento(EVENTOS_NEGOCIO.FECHAMENTO_MENSAL_GERENCIAR)
+  reabrirMesFinanceiro(@Body() dto: ReabrirMesFinanceiroDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.financeiroAdmService.reabrirMesFinanceiro(dto, user?.id, user?.empresaId);
   }
 
   @Get('anexos')

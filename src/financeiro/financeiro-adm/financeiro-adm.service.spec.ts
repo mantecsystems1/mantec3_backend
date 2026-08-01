@@ -9,6 +9,7 @@ import {
   TITULO_FINANCEIRO_STATUS,
   TITULO_FINANCEIRO_TIPO,
 } from './financeiro-adm.types';
+import { FECHAMENTO_MENSAL_STATUS } from './schemas/fechamento-mensal-financeiro.schema';
 
 function execResult<T>(result: T) {
   return {
@@ -69,6 +70,12 @@ describe('FinanceiroAdmService', () => {
       find: jest.fn(),
       findOneAndUpdate: jest.fn(),
     };
+    const fechamentoModel = {
+      create: jest.fn(),
+      find: jest.fn(),
+      findOne: jest.fn().mockReturnValue(execResult(null)),
+      findOneAndUpdate: jest.fn(),
+    };
     const empresaModel = {
       findById: jest.fn(),
     };
@@ -83,6 +90,7 @@ describe('FinanceiroAdmService', () => {
       movimentoModel as never,
       recorrenciaModel as never,
       anexoModel as never,
+      fechamentoModel as never,
       empresaModel as never,
       auditoriaService as never,
     );
@@ -95,6 +103,7 @@ describe('FinanceiroAdmService', () => {
       movimentoModel,
       recorrenciaModel,
       anexoModel,
+      fechamentoModel,
       empresaModel,
       auditoriaService,
     };
@@ -446,5 +455,82 @@ describe('FinanceiroAdmService', () => {
     expect(result.resumo.pagarAbertoCentavos).toBe(8000);
     expect(result.resumo.proLaboreCentavos).toBe(15000);
     expect(result.resumo.quantidadeAnexos).toBe(1);
+  });
+
+  it('fecha competencia mensal salvando snapshot e hash', async () => {
+    const empresaId = new Types.ObjectId();
+    const fechamentoId = new Types.ObjectId();
+    const usuarioId = new Types.ObjectId().toString();
+    const { service, empresaModel, contaModel, categoriaModel, tituloModel, movimentoModel, recorrenciaModel, anexoModel, fechamentoModel } = createService();
+
+    empresaModel.findById.mockReturnValue(chainResult({
+      _id: empresaId,
+      nomeFantasia: 'Mantec',
+      cnpj: '00.000.000/0001-00',
+    }));
+    contaModel.find.mockReturnValue(chainResult([{ _id: new Types.ObjectId(), nome: 'Caixa', tipo: 'caixa', saldoAtual: Types.Decimal128.fromString('100.00') }]));
+    categoriaModel.find.mockReturnValue(chainResult([{ nome: 'Vendas', tipo: CATEGORIA_FINANCEIRA_TIPO.ENTRADA }]));
+    movimentoModel.find.mockReturnValue(chainResult([]));
+    tituloModel.find.mockReturnValue(chainResult([]));
+    recorrenciaModel.find.mockReturnValue(chainResult([]));
+    anexoModel.find.mockReturnValue(chainResult([]));
+    fechamentoModel.findOne.mockReturnValue(execResult(null));
+    fechamentoModel.findOneAndUpdate.mockReturnValue(execResult({
+      _id: fechamentoId,
+      empresaId,
+      competencia: '2026-08',
+      status: FECHAMENTO_MENSAL_STATUS.FECHADO,
+      snapshotHashSha256: 'hash',
+    }));
+
+    const result = await service.fecharMesFinanceiro({ competencia: '2026-08' }, usuarioId, empresaId.toString());
+
+    expect(fechamentoModel.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ competencia: '2026-08' }),
+      expect.objectContaining({
+        status: FECHAMENTO_MENSAL_STATUS.FECHADO,
+        competencia: '2026-08',
+        snapshotHashSha256: expect.any(String),
+      }),
+      expect.objectContaining({ upsert: true }),
+    );
+    expect(result?.status).toBe(FECHAMENTO_MENSAL_STATUS.FECHADO);
+  });
+
+  it('bloqueia movimento em competencia fechada', async () => {
+    const empresaId = new Types.ObjectId();
+    const contaId = new Types.ObjectId();
+    const categoriaId = new Types.ObjectId();
+    const { service, contaModel, categoriaModel, movimentoModel, fechamentoModel } = createService();
+
+    contaModel.findOne.mockReturnValue(execResult({
+      _id: contaId,
+      empresaId,
+      saldoAtual: Types.Decimal128.fromString('0.00'),
+    }));
+    categoriaModel.findOne.mockReturnValue(execResult({
+      _id: categoriaId,
+      empresaId,
+      tipo: CATEGORIA_FINANCEIRA_TIPO.SAIDA,
+      ativo: true,
+    }));
+    fechamentoModel.findOne.mockReturnValue(execResult({
+      _id: new Types.ObjectId(),
+      empresaId,
+      competencia: '2026-08',
+      status: FECHAMENTO_MENSAL_STATUS.FECHADO,
+    }));
+
+    await expect(service.createMovimento({
+      empresaId: empresaId.toString(),
+      contaId: contaId.toString(),
+      categoriaId: categoriaId.toString(),
+      tipo: MOVIMENTO_CAIXA_TIPO.SAIDA,
+      descricao: 'Despesa',
+      valor: '20.00',
+      dataMovimento: '2026-08-10',
+      formaPagamento: FORMA_PAGAMENTO_FINANCEIRO.PIX,
+    }, new Types.ObjectId().toString(), empresaId.toString())).rejects.toThrow(BadRequestException);
+    expect(movimentoModel.create).not.toHaveBeenCalled();
   });
 });

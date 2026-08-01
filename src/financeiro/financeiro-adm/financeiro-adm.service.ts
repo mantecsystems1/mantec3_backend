@@ -1,14 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { createHash } from 'crypto';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { Model, Types } from 'mongoose';
+import { basename, join } from 'path';
 import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../../auditoria/auditoria-eventos';
 import { Empresa, EmpresaDocument } from '../../core/empresa/schemas/empresa.schema';
 import { SimplePdfBuilder } from '../../documentos/simple-pdf';
 import { CreateAnexoFinanceiroDto } from './dto/create-anexo-financeiro.dto';
 import { CreateContaFinanceiraDto } from './dto/create-conta-financeira.dto';
+import { FecharMesFinanceiroDto } from './dto/fechar-mes-financeiro.dto';
 import { UpdateContaFinanceiraDto } from './dto/update-conta-financeira.dto';
 import { CreateCategoriaFinanceiraDto } from './dto/create-categoria-financeira.dto';
 import { UpdateCategoriaFinanceiraDto } from './dto/update-categoria-financeira.dto';
@@ -21,6 +23,7 @@ import { CreateRecorrenciaFinanceiraDto } from './dto/create-recorrencia-finance
 import { UpdateRecorrenciaFinanceiraDto } from './dto/update-recorrencia-financeira.dto';
 import { GerarRecorrenciasFinanceirasDto } from './dto/gerar-recorrencias-financeiras.dto';
 import { ListAnexosFinanceirosQueryDto } from './dto/list-anexos-financeiros-query.dto';
+import { ReabrirMesFinanceiroDto } from './dto/reabrir-mes-financeiro.dto';
 import { RelatorioMensalFinanceiroQueryDto } from './dto/relatorio-mensal-financeiro-query.dto';
 import { ContaFinanceira, ContaFinanceiraDocument } from './schemas/conta-financeira.schema';
 import { CategoriaFinanceira, CategoriaFinanceiraDocument } from './schemas/categoria-financeira.schema';
@@ -28,7 +31,8 @@ import { TituloFinanceiro, TituloFinanceiroDocument } from './schemas/titulo-fin
 import { MovimentoCaixa, MovimentoCaixaDocument } from './schemas/movimento-caixa.schema';
 import { RecorrenciaFinanceira, RecorrenciaFinanceiraDocument } from './schemas/recorrencia-financeira.schema';
 import { AnexoFinanceiro, AnexoFinanceiroDocument, ANEXO_FINANCEIRO_VINCULO_TIPO } from './schemas/anexo-financeiro.schema';
-import { buildSimpleXlsx, SimpleXlsxSheet } from './simple-xlsx';
+import { FechamentoMensalFinanceiro, FechamentoMensalFinanceiroDocument, FECHAMENTO_MENSAL_STATUS } from './schemas/fechamento-mensal-financeiro.schema';
+import { buildSimpleXlsx, createZip, SimpleXlsxSheet, ZipEntry } from './simple-xlsx';
 import {
   CATEGORIA_FINANCEIRA_CLASSIFICACAO,
   CATEGORIA_FINANCEIRA_TIPO,
@@ -143,6 +147,7 @@ export class FinanceiroAdmService {
     @InjectModel(MovimentoCaixa.name) private movimentoModel: Model<MovimentoCaixaDocument>,
     @InjectModel(RecorrenciaFinanceira.name) private recorrenciaModel: Model<RecorrenciaFinanceiraDocument>,
     @InjectModel(AnexoFinanceiro.name) private anexoModel: Model<AnexoFinanceiroDocument>,
+    @InjectModel(FechamentoMensalFinanceiro.name) private fechamentoModel: Model<FechamentoMensalFinanceiroDocument>,
     @InjectModel(Empresa.name) private empresaModel: Model<EmpresaDocument>,
     private readonly auditoriaService: AuditoriaService,
   ) {}
@@ -330,6 +335,10 @@ export class FinanceiroAdmService {
   async createTitulo(dto: CreateTituloFinanceiroDto, actorId?: string, actorEmpresaId?: string) {
     this.assertEmpresaPermitida(dto.empresaId, actorEmpresaId);
     const valorTotalCentavos = this.parseValor(dto.valorTotal, 'valorTotal');
+    const dataCompetencia = this.toDate(dto.dataCompetencia, 'dataCompetencia');
+    const dataVencimento = this.toDate(dto.dataVencimento, 'dataVencimento');
+    await this.assertPeriodoFinanceiroAberto(dto.empresaId, dataCompetencia, 'criar titulo financeiro');
+    await this.assertPeriodoFinanceiroAberto(dto.empresaId, dataVencimento, 'criar titulo financeiro');
     await this.assertCategoriaPertenceTipo(dto.categoriaId, actorEmpresaId, tituloTipoParaCategoriaTipo(dto.tipo));
     if (dto.contaId) {
       await this.getContaDaEmpresa(dto.contaId, actorEmpresaId);
@@ -342,8 +351,8 @@ export class FinanceiroAdmService {
       contaId: this.toOptionalObjectId(dto.contaId, 'contaId'),
       valorTotal: centavosParaDecimal128(valorTotalCentavos),
       valorPago: centavosParaDecimal128(0),
-      dataCompetencia: this.toDate(dto.dataCompetencia, 'dataCompetencia'),
-      dataVencimento: this.toDate(dto.dataVencimento, 'dataVencimento'),
+      dataCompetencia,
+      dataVencimento,
       status: TITULO_FINANCEIRO_STATUS.ABERTO,
       contraparteTipo: dto.contraparteTipo ?? 'outro',
       contraparteId: this.toOptionalObjectId(dto.contraparteId, 'contraparteId'),
@@ -400,6 +409,8 @@ export class FinanceiroAdmService {
     if (dto.contaId) {
       await this.getContaDaEmpresa(dto.contaId, actorEmpresaId);
     }
+    await this.assertPeriodoFinanceiroAberto(tituloAtual.empresaId.toString(), tituloAtual.dataCompetencia, 'alterar titulo financeiro');
+    await this.assertPeriodoFinanceiroAberto(tituloAtual.empresaId.toString(), tituloAtual.dataVencimento, 'alterar titulo financeiro');
 
     const updateData: Record<string, unknown> = { ...dto };
     if (dto.empresaId) updateData.empresaId = this.toObjectId(dto.empresaId, 'empresaId');
@@ -417,8 +428,14 @@ export class FinanceiroAdmService {
       updateData.valorTotal = centavosParaDecimal128(novoTotalCentavos);
       updateData.status = calcularStatusTitulo(updateData.valorTotal, tituloAtual.valorPago);
     }
-    if (dto.dataCompetencia) updateData.dataCompetencia = this.toDate(dto.dataCompetencia, 'dataCompetencia');
-    if (dto.dataVencimento) updateData.dataVencimento = this.toDate(dto.dataVencimento, 'dataVencimento');
+    if (dto.dataCompetencia) {
+      updateData.dataCompetencia = this.toDate(dto.dataCompetencia, 'dataCompetencia');
+      await this.assertPeriodoFinanceiroAberto(tituloAtual.empresaId.toString(), updateData.dataCompetencia as Date, 'alterar titulo financeiro');
+    }
+    if (dto.dataVencimento) {
+      updateData.dataVencimento = this.toDate(dto.dataVencimento, 'dataVencimento');
+      await this.assertPeriodoFinanceiroAberto(tituloAtual.empresaId.toString(), updateData.dataVencimento as Date, 'alterar titulo financeiro');
+    }
 
     const titulo = await this.tituloModel
       .findOneAndUpdate(this.getEmpresaQuery(actorEmpresaId, { _id: id }), updateData, { new: true })
@@ -445,6 +462,8 @@ export class FinanceiroAdmService {
     if (dinheiroParaCentavos(tituloAtual.valorPago) > 0) {
       throw new BadRequestException('Titulo com baixa financeira deve ser estornado antes de cancelar.');
     }
+    await this.assertPeriodoFinanceiroAberto(tituloAtual.empresaId.toString(), tituloAtual.dataCompetencia, 'cancelar titulo financeiro');
+    await this.assertPeriodoFinanceiroAberto(tituloAtual.empresaId.toString(), tituloAtual.dataVencimento, 'cancelar titulo financeiro');
 
     const titulo = await this.tituloModel
       .findOneAndUpdate(this.getEmpresaQuery(actorEmpresaId, { _id: id }), { status: TITULO_FINANCEIRO_STATUS.CANCELADO }, { new: true })
@@ -465,6 +484,8 @@ export class FinanceiroAdmService {
   async baixarTitulo(id: string, dto: BaixarTituloFinanceiroDto, actorId?: string, actorEmpresaId?: string) {
     const titulo = await this.getTituloDaEmpresa(id, actorEmpresaId);
     this.assertTituloPodeSerBaixado(titulo);
+    const dataPagamento = this.toDate(dto.dataPagamento, 'dataPagamento');
+    await this.assertPeriodoFinanceiroAberto(titulo.empresaId.toString(), dataPagamento, 'baixar titulo financeiro');
 
     const valorBaixaCentavos = this.parseValor(dto.valor, 'valor');
     const valorPagoCentavos = dinheiroParaCentavos(titulo.valorPago);
@@ -484,7 +505,7 @@ export class FinanceiroAdmService {
       tipo: tituloTipoParaMovimentoTipo(titulo.tipo),
       descricao: `Baixa - ${titulo.descricao}`,
       valorCentavos: valorBaixaCentavos,
-      dataMovimento: this.toDate(dto.dataPagamento, 'dataPagamento'),
+      dataMovimento: dataPagamento,
       formaPagamento: dto.formaPagamento,
       origemTipo: 'titulo_financeiro',
       origemId: titulo._id as Types.ObjectId,
@@ -497,7 +518,7 @@ export class FinanceiroAdmService {
       id,
       novoValorPagoCentavos,
       status,
-      status === TITULO_FINANCEIRO_STATUS.QUITADO ? this.toDate(dto.dataPagamento, 'dataPagamento') : undefined,
+      status === TITULO_FINANCEIRO_STATUS.QUITADO ? dataPagamento : undefined,
       conta._id as Types.ObjectId,
       actorEmpresaId,
     );
@@ -520,6 +541,8 @@ export class FinanceiroAdmService {
     await this.getContaDaEmpresa(dto.contaId, actorEmpresaId);
     await this.assertCategoriaPertenceTipo(dto.categoriaId, actorEmpresaId, dto.tipo);
     const valorCentavos = this.parseValor(dto.valor, 'valor');
+    const dataMovimento = this.toDate(dto.dataMovimento, 'dataMovimento');
+    await this.assertPeriodoFinanceiroAberto(dto.empresaId, dataMovimento, 'registrar movimento de caixa');
 
     return this.registrarMovimento({
       empresaId: dto.empresaId,
@@ -528,7 +551,7 @@ export class FinanceiroAdmService {
       tipo: dto.tipo,
       descricao: dto.descricao,
       valorCentavos,
-      dataMovimento: this.toDate(dto.dataMovimento, 'dataMovimento'),
+      dataMovimento,
       formaPagamento: dto.formaPagamento,
       origemTipo: dto.origemTipo,
       origemId: dto.origemId,
@@ -568,6 +591,7 @@ export class FinanceiroAdmService {
     if (movimento.status === MOVIMENTO_CAIXA_STATUS.ESTORNADO) {
       throw new BadRequestException('Movimento ja estornado.');
     }
+    await this.assertPeriodoFinanceiroAberto(movimento.empresaId.toString(), movimento.dataMovimento, 'estornar movimento de caixa');
 
     await this.atualizarSaldoConta(
       movimento.contaId.toString(),
@@ -776,6 +800,119 @@ export class FinanceiroAdmService {
       quantidade: titulos.length,
       titulos,
     };
+  }
+
+  async findFechamentoMensal(query: RelatorioMensalFinanceiroQueryDto = {}, actorEmpresaId?: string) {
+    const empresaId = this.requireEmpresaId(actorEmpresaId);
+    const periodo = this.montarPeriodoRelatorio(query);
+
+    return this.fechamentoModel
+      .findOne(this.getEmpresaQuery(empresaId, { competencia: periodo.competencia }))
+      .populate('fechadoPor', 'nome email')
+      .populate('reabertoPor', 'nome email')
+      .lean()
+      .exec();
+  }
+
+  async findAllFechamentosMensais(actorEmpresaId?: string) {
+    const empresaId = this.requireEmpresaId(actorEmpresaId);
+
+    return this.fechamentoModel
+      .find(this.getEmpresaQuery(empresaId))
+      .populate('fechadoPor', 'nome email')
+      .populate('reabertoPor', 'nome email')
+      .sort({ competencia: -1 })
+      .lean()
+      .exec();
+  }
+
+  async fecharMesFinanceiro(dto: FecharMesFinanceiroDto = {}, actorId?: string, actorEmpresaId?: string) {
+    const empresaId = this.requireEmpresaId(actorEmpresaId);
+    const periodo = this.montarPeriodoRelatorio(dto);
+    const existente = await this.fechamentoModel
+      .findOne(this.getEmpresaQuery(empresaId, { competencia: periodo.competencia }))
+      .exec();
+
+    if (existente?.status === FECHAMENTO_MENSAL_STATUS.FECHADO) {
+      throw new BadRequestException('Competencia financeira ja esta fechada.');
+    }
+
+    const dados = await this.getRelatorioMensalDados(dto, empresaId);
+    const snapshot = this.montarSnapshotFechamento(dados);
+    const snapshotHashSha256 = this.hashJson(snapshot);
+    const update = {
+      empresaId: this.toObjectId(empresaId, 'empresaId'),
+      competencia: periodo.competencia,
+      periodoInicio: periodo.inicio,
+      periodoFim: periodo.fim,
+      status: FECHAMENTO_MENSAL_STATUS.FECHADO,
+      resumo: dados.resumo,
+      snapshot,
+      snapshotHashSha256,
+      observacoes: dto.observacoes,
+      fechadoEm: new Date(),
+      fechadoPor: actorId ? this.toObjectId(actorId, 'usuarioId') : undefined,
+      reabertoEm: undefined,
+      reabertoPor: undefined,
+      motivoReabertura: undefined,
+    };
+
+    const fechamento = await this.fechamentoModel
+      .findOneAndUpdate(
+        this.getEmpresaQuery(empresaId, { competencia: periodo.competencia }),
+        update,
+        { new: true, upsert: true, setDefaultsOnInsert: true },
+      )
+      .exec();
+
+    await this.registrarAuditoria(fechamento, actorId, AUDITORIA_EVENTOS.FECHAMENTO_MENSAL_FECHADO, AUDITORIA_ENTIDADES.FECHAMENTO_MENSAL, {
+      competencia: periodo.competencia,
+      inicio: periodo.inicio,
+      fim: periodo.fim,
+      snapshotHashSha256,
+    });
+
+    return fechamento;
+  }
+
+  async reabrirMesFinanceiro(dto: ReabrirMesFinanceiroDto, actorId?: string, actorEmpresaId?: string) {
+    const empresaId = this.requireEmpresaId(actorEmpresaId);
+    const periodo = this.montarPeriodoRelatorio(dto);
+    const fechamento = await this.fechamentoModel
+      .findOne(this.getEmpresaQuery(empresaId, { competencia: periodo.competencia }))
+      .exec();
+
+    if (!fechamento) {
+      throw new NotFoundException('Fechamento mensal nao encontrado.');
+    }
+
+    if (fechamento.status !== FECHAMENTO_MENSAL_STATUS.FECHADO) {
+      throw new BadRequestException('Somente competencias fechadas podem ser reabertas.');
+    }
+
+    const atualizado = await this.fechamentoModel
+      .findOneAndUpdate(
+        this.getEmpresaQuery(empresaId, { competencia: periodo.competencia }),
+        {
+          status: FECHAMENTO_MENSAL_STATUS.REABERTO,
+          reabertoEm: new Date(),
+          reabertoPor: actorId ? this.toObjectId(actorId, 'usuarioId') : undefined,
+          motivoReabertura: dto.motivo,
+        },
+        { new: true },
+      )
+      .exec();
+
+    if (!atualizado) {
+      throw new NotFoundException('Fechamento mensal nao encontrado.');
+    }
+
+    await this.registrarAuditoria(atualizado, actorId, AUDITORIA_EVENTOS.FECHAMENTO_MENSAL_REABERTO, AUDITORIA_ENTIDADES.FECHAMENTO_MENSAL, {
+      competencia: periodo.competencia,
+      motivo: dto.motivo,
+    });
+
+    return atualizado;
   }
 
   async getRelatorioMensalDados(query: RelatorioMensalFinanceiroQueryDto = {}, actorEmpresaId?: string): Promise<RelatorioFinanceiroMensalDados> {
@@ -1046,6 +1183,100 @@ export class FinanceiroAdmService {
 
     await this.registrarAuditoriaRelatorio(dados.periodo, 'xlsx', actorId, actorEmpresaId);
     return buildSimpleXlsx(sheets);
+  }
+
+  async gerarPacoteProbatorioZip(query: RelatorioMensalFinanceiroQueryDto = {}, actorId?: string, actorEmpresaId?: string) {
+    const dados = await this.getRelatorioMensalDados(query, actorEmpresaId);
+    const pdf = await this.gerarRelatorioMensalPdf(query, undefined, actorEmpresaId);
+    const xlsx = await this.gerarRelatorioMensalXlsx(query, undefined, actorEmpresaId);
+    const fechamento = await this.findFechamentoMensal(query, actorEmpresaId);
+    const competencia = dados.periodo.competencia;
+    const entries: ZipEntry[] = [
+      {
+        path: `relatorio-financeiro-${competencia}.pdf`,
+        content: pdf,
+      },
+      {
+        path: `relatorio-financeiro-${competencia}.xlsx`,
+        content: xlsx,
+      },
+    ];
+
+    const arquivosManifesto = [
+      {
+        caminho: `relatorio-financeiro-${competencia}.pdf`,
+        mimeType: 'application/pdf',
+        tamanhoBytes: pdf.length,
+        hashSha256: this.hashBuffer(pdf),
+        origem: 'relatorio_pdf',
+      },
+      {
+        caminho: `relatorio-financeiro-${competencia}.xlsx`,
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        tamanhoBytes: xlsx.length,
+        hashSha256: this.hashBuffer(xlsx),
+        origem: 'relatorio_excel',
+      },
+    ];
+
+    for (const anexo of dados.anexos) {
+      const arquivoPath = this.pathArquivoUpload(anexo.urlArquivo);
+      const zipName = `anexos/${this.safeZipName(anexo.nomeOriginal || anexo.nomeArquivo || String(anexo._id))}`;
+
+      if (arquivoPath && existsSync(arquivoPath)) {
+        const content = readFileSync(arquivoPath);
+        entries.push({ path: zipName, content });
+        arquivosManifesto.push({
+          caminho: zipName,
+          mimeType: anexo.mimeType,
+          tamanhoBytes: content.length,
+          hashSha256: this.hashBuffer(content),
+          origem: anexo.vinculoTipo,
+        });
+      } else {
+        arquivosManifesto.push({
+          caminho: zipName,
+          mimeType: anexo.mimeType,
+          tamanhoBytes: anexo.tamanhoBytes,
+          hashSha256: anexo.hashSha256,
+          origem: `${anexo.vinculoTipo}:arquivo_nao_encontrado`,
+        });
+      }
+    }
+
+    const manifesto = {
+      geradoEm: new Date().toISOString(),
+      empresa: {
+        id: String(dados.empresa?._id ?? actorEmpresaId ?? ''),
+        nomeFantasia: dados.empresa?.nomeFantasia ?? null,
+        razaoSocial: dados.empresa?.razaoSocial ?? null,
+        cnpj: dados.empresa?.cnpj ?? null,
+      },
+      competencia,
+      periodo: {
+        inicio: dados.periodo.inicio.toISOString(),
+        fim: dados.periodo.fim.toISOString(),
+      },
+      fechamento: fechamento
+        ? {
+            status: fechamento.status,
+            snapshotHashSha256: fechamento.snapshotHashSha256,
+            fechadoEm: fechamento.fechadoEm,
+            reabertoEm: fechamento.reabertoEm,
+          }
+        : null,
+      resumo: dados.resumo,
+      arquivos: arquivosManifesto,
+    };
+
+    const manifestoBuffer = Buffer.from(JSON.stringify(manifesto, null, 2), 'utf8');
+    entries.unshift({
+      path: 'manifesto.json',
+      content: manifestoBuffer,
+    });
+
+    await this.registrarAuditoriaRelatorio(dados.periodo, 'zip', actorId, actorEmpresaId);
+    return createZip(entries);
   }
 
   findAllAnexos(query: ListAnexosFinanceirosQueryDto = {}, actorEmpresaId?: string) {
@@ -1399,14 +1630,18 @@ export class FinanceiroAdmService {
     }
 
     const status = calcularStatusTitulo(centavosParaDecimal128(valorTotalCentavos), existing.valorPago);
+    const dataCompetencia = this.toDate(input.dataCompetencia, 'dataCompetencia');
+    const dataVencimento = this.toDate(input.dataVencimento, 'dataVencimento');
+    await this.assertPeriodoFinanceiroAberto(input.empresaId, dataCompetencia, 'sincronizar titulo financeiro integrado');
+    await this.assertPeriodoFinanceiroAberto(input.empresaId, dataVencimento, 'sincronizar titulo financeiro integrado');
     const titulo = await this.tituloModel.findOneAndUpdate(
       { _id: existing._id, empresaId: input.empresaId },
       {
         categoriaId: this.toObjectId(input.categoriaId, 'categoriaId'),
         descricao: input.descricao,
         valorTotal: centavosParaDecimal128(valorTotalCentavos),
-        dataCompetencia: this.toDate(input.dataCompetencia, 'dataCompetencia'),
-        dataVencimento: this.toDate(input.dataVencimento, 'dataVencimento'),
+        dataCompetencia,
+        dataVencimento,
         status,
         contraparteTipo: input.contraparteTipo,
         contraparteId: this.toOptionalObjectId(input.contraparteId, 'contraparteId'),
@@ -1567,6 +1802,8 @@ export class FinanceiroAdmService {
   }
 
   private async registrarMovimento(input: RegistrarMovimentoInput, actorId?: string) {
+    await this.assertPeriodoFinanceiroAberto(input.empresaId.toString(), input.dataMovimento, 'registrar movimento de caixa');
+
     const movimento = await this.movimentoModel.create({
       empresaId: this.toObjectId(input.empresaId.toString(), 'empresaId'),
       contaId: this.toObjectId(input.contaId.toString(), 'contaId'),
@@ -1687,6 +1924,87 @@ export class FinanceiroAdmService {
       inicio,
       fim,
     };
+  }
+
+  private montarSnapshotFechamento(dados: RelatorioFinanceiroMensalDados) {
+    return {
+      competencia: dados.periodo.competencia,
+      periodoInicio: dados.periodo.inicio.toISOString(),
+      periodoFim: dados.periodo.fim.toISOString(),
+      resumo: dados.resumo,
+      contas: dados.contas.map((conta) => ({
+        id: String(conta._id ?? ''),
+        nome: conta.nome,
+        tipo: conta.tipo,
+        saldoAtual: centavosParaString(dinheiroParaCentavos(conta.saldoAtual)),
+      })),
+      movimentos: dados.movimentos.map((movimento) => ({
+        id: String(movimento._id ?? ''),
+        dataMovimento: this.dateToInput(new Date(movimento.dataMovimento)),
+        tipo: movimento.tipo,
+        descricao: movimento.descricao,
+        conta: this.refNome(movimento.contaId),
+        categoria: this.refNome(movimento.categoriaId),
+        valor: centavosParaString(dinheiroParaCentavos(movimento.valor)),
+        formaPagamento: movimento.formaPagamento,
+        origemTipo: movimento.origemTipo,
+      })),
+      titulos: dados.titulos.map((titulo) => ({
+        id: String(titulo._id ?? ''),
+        dataCompetencia: this.dateToInput(new Date(titulo.dataCompetencia)),
+        dataVencimento: this.dateToInput(new Date(titulo.dataVencimento)),
+        tipo: titulo.tipo,
+        descricao: titulo.descricao,
+        categoria: this.refNome(titulo.categoriaId),
+        valorTotal: centavosParaString(dinheiroParaCentavos(titulo.valorTotal)),
+        valorPago: centavosParaString(dinheiroParaCentavos(titulo.valorPago)),
+        valorAberto: centavosParaString(this.valorAbertoTituloCentavos(titulo)),
+        status: titulo.status,
+      })),
+      anexos: dados.anexos.map((anexo) => ({
+        id: String(anexo._id ?? ''),
+        nomeOriginal: anexo.nomeOriginal,
+        urlArquivo: anexo.urlArquivo,
+        hashSha256: anexo.hashSha256,
+        vinculoTipo: anexo.vinculoTipo,
+        vinculoId: anexo.vinculoId ? String(anexo.vinculoId) : undefined,
+      })),
+    };
+  }
+
+  private hashJson(value: unknown) {
+    return this.hashBuffer(Buffer.from(JSON.stringify(value), 'utf8'));
+  }
+
+  private hashBuffer(buffer: Buffer) {
+    return createHash('sha256').update(buffer).digest('hex');
+  }
+
+  private pathArquivoUpload(urlArquivo?: string) {
+    if (!urlArquivo?.startsWith('/uploads/')) {
+      return null;
+    }
+
+    const relative = urlArquivo.replace(/^\/uploads\//, '').replace(/[\\/]+/g, '/');
+    return join(process.cwd(), 'uploads', relative);
+  }
+
+  private safeZipName(value: string) {
+    const name = basename(value).replace(/[^a-zA-Z0-9._ -]/g, '_').trim();
+    return name || `arquivo-${Date.now()}`;
+  }
+
+  private async assertPeriodoFinanceiroAberto(empresaId: string, data: Date, operacao: string) {
+    const fechamento = await this.fechamentoModel.findOne({
+      empresaId,
+      status: FECHAMENTO_MENSAL_STATUS.FECHADO,
+      periodoInicio: { $lte: data },
+      periodoFim: { $gte: data },
+    }).exec();
+
+    if (fechamento) {
+      throw new BadRequestException(`Nao e possivel ${operacao}: competencia ${fechamento.competencia} esta fechada.`);
+    }
   }
 
   private inicioDoDia(date: Date) {
