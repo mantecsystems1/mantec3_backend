@@ -8,7 +8,9 @@ import { Empresa, EmpresaSchema } from '../core/empresa/schemas/empresa.schema';
 import { Pagamento, PagamentoSchema } from '../financeiro/pagamentos/schemas/pagamento.schema';
 import { Venda, VendaSchema } from '../financeiro/vendas/schemas/venda.schema';
 import { Garantia, GarantiaSchema } from '../garantias/schemas/garantia.schema';
+import { DocumentosModule } from '../documentos/documentos.module';
 import { OrcamentosModule } from '../orcamentos/orcamentos.module';
+import { LogEvento, LogEventoSchema } from '../auditoria/schemas/log-evento.schema';
 import { Orcamento, OrcamentoSchema } from '../orcamentos/schemas/orcamento.schema';
 import { ItensOrcamento, ItensOrcamentoSchema } from '../orcamentos/schemas/itens-orcamento.schema';
 import { OrdemServico, OrdemServicoSchema } from '../ordens-servico/schemas/ordem-servico.schema';
@@ -19,6 +21,7 @@ import { PortalClienteService } from './portal-cliente.service';
   imports: [
     ConfigModule,
     OrcamentosModule,
+    DocumentosModule,
     MongooseModule.forFeature([
       { name: Cliente.name, schema: ClienteSchema },
       { name: Empresa.name, schema: EmpresaSchema },
@@ -30,6 +33,7 @@ import { PortalClienteService } from './portal-cliente.service';
       { name: Garantia.name, schema: GarantiaSchema },
       { name: Produto.name, schema: ProdutoSchema },
       { name: Servico.name, schema: ServicoSchema },
+      { name: LogEvento.name, schema: LogEventoSchema },
     ]),
   ],
   controllers: [PortalClienteController],

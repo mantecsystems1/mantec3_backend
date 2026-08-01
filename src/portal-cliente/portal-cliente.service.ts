@@ -15,6 +15,9 @@ import { ItensOrcamento, ItensOrcamentoDocument } from '../orcamentos/schemas/it
 import { OrcamentosService } from '../orcamentos/orcamentos.service';
 import { ORCAMENTO_STATUS } from '../orcamentos/state/orcamento.states';
 import { OrdemServico, OrdemServicoDocument } from '../ordens-servico/schemas/ordem-servico.schema';
+import { DocumentosService } from '../documentos/documentos.service';
+import { LogEvento, LogEventoDocument } from '../auditoria/schemas/log-evento.schema';
+import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 
 type PortalTokenPayload = {
   clienteId: string;
@@ -37,7 +40,9 @@ export class PortalClienteService {
     @InjectModel(Garantia.name) private readonly garantiaModel: Model<GarantiaDocument>,
     @InjectModel(Produto.name) private readonly produtoModel: Model<ProdutoDocument>,
     @InjectModel(Servico.name) private readonly servicoModel: Model<ServicoDocument>,
+    @InjectModel(LogEvento.name) private readonly logEventoModel: Model<LogEventoDocument>,
     private readonly orcamentosService: OrcamentosService,
+    private readonly documentosService: DocumentosService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -108,8 +113,9 @@ export class PortalClienteService {
       throw new NotFoundException('Portal do cliente nao encontrado.');
     }
 
-    const orcamentoIds = orcamentos.map((orcamento) => orcamento._id);
-    const vendaIds = vendas.map((venda) => venda._id);
+    const orcamentoIds = orcamentos.map((orcamento) => orcamento._id as Types.ObjectId);
+    const ordemServicoIds = ordensServico.map((ordem) => ordem._id as Types.ObjectId);
+    const vendaIds = vendas.map((venda) => venda._id as Types.ObjectId);
     const [itensOrcamento, pagamentos] = await Promise.all([
       this.itensOrcamentoModel.find({ orcamentoId: { $in: orcamentoIds } }).lean().exec(),
       this.pagamentoModel.find({ vendaId: { $in: vendaIds } }).lean().exec(),
@@ -124,6 +130,13 @@ export class PortalClienteService {
       this.produtoModel.find({ _id: { $in: produtoIds } }).lean().exec(),
       this.servicoModel.find({ _id: { $in: servicoIds } }).lean().exec(),
     ]);
+    const timeline = await this.getTimelinePublica({
+      empresaId: empresaObjectId,
+      clienteId: clienteObjectId,
+      orcamentoIds,
+      ordemServicoIds,
+      vendaIds,
+    });
 
     return {
       empresa: {
@@ -183,6 +196,7 @@ export class PortalClienteService {
         id: String(garantia._id),
         produto: this.getRefName(garantia.produtoId),
       })),
+      timeline,
     };
   }
 
@@ -209,6 +223,18 @@ export class PortalClienteService {
 
     const status = decisao === 'aprovar' ? ORCAMENTO_STATUS.APROVADO : ORCAMENTO_STATUS.REPROVADO;
     return this.orcamentosService.update(orcamentoId, { status });
+  }
+
+  async gerarOrcamentoPdf(token: string, orcamentoId: string) {
+    const payload = this.verifyToken(token);
+    await this.assertOrcamentoPertenceAoCliente(orcamentoId, payload);
+    return this.documentosService.gerarOrcamentoPdf(orcamentoId);
+  }
+
+  async gerarReciboPdf(token: string, vendaId: string) {
+    const payload = this.verifyToken(token);
+    await this.assertVendaPertenceAoCliente(vendaId, payload);
+    return this.documentosService.gerarReciboPdf(vendaId);
   }
 
   private signToken(payload: PortalTokenPayload) {
@@ -289,6 +315,169 @@ export class PortalClienteService {
     }
 
     return `${item.tipo || 'Item'} ${String(item.referenciaId || '').slice(-6).toUpperCase()}`;
+  }
+
+  private async assertOrcamentoPertenceAoCliente(orcamentoId: string, payload: PortalTokenPayload) {
+    if (!Types.ObjectId.isValid(orcamentoId)) {
+      throw new BadRequestException('Orcamento invalido.');
+    }
+
+    const orcamento = await this.orcamentoModel.findOne({
+      _id: new Types.ObjectId(orcamentoId),
+      clienteId: new Types.ObjectId(payload.clienteId),
+      empresaId: new Types.ObjectId(payload.empresaId),
+    }).lean().exec();
+
+    if (!orcamento) {
+      throw new NotFoundException('Orcamento nao encontrado para este cliente.');
+    }
+  }
+
+  private async assertVendaPertenceAoCliente(vendaId: string, payload: PortalTokenPayload) {
+    if (!Types.ObjectId.isValid(vendaId)) {
+      throw new BadRequestException('Venda invalida.');
+    }
+
+    const venda = await this.vendaModel.findOne({
+      _id: new Types.ObjectId(vendaId),
+      clienteId: new Types.ObjectId(payload.clienteId),
+      empresaId: new Types.ObjectId(payload.empresaId),
+    }).lean().exec();
+
+    if (!venda) {
+      throw new NotFoundException('Recibo nao encontrado para este cliente.');
+    }
+  }
+
+  private async getTimelinePublica({
+    empresaId,
+    clienteId,
+    orcamentoIds,
+    ordemServicoIds,
+    vendaIds,
+  }: {
+    empresaId: Types.ObjectId;
+    clienteId: Types.ObjectId;
+    orcamentoIds: Types.ObjectId[];
+    ordemServicoIds: Types.ObjectId[];
+    vendaIds: Types.ObjectId[];
+  }) {
+    const eventosPublicos = [
+      AUDITORIA_EVENTOS.RECEBIMENTO_CRIADO,
+      AUDITORIA_EVENTOS.TERMO_GERADO,
+      AUDITORIA_EVENTOS.ORCAMENTO_ENVIADO,
+      AUDITORIA_EVENTOS.ORCAMENTO_APROVADO,
+      AUDITORIA_EVENTOS.ORCAMENTO_REPROVADO,
+      AUDITORIA_EVENTOS.OS_CRIADA,
+      AUDITORIA_EVENTOS.OS_STATUS_ALTERADO,
+      AUDITORIA_EVENTOS.VENDA_GERADA,
+      AUDITORIA_EVENTOS.PAGAMENTO_REGISTRADO,
+      AUDITORIA_EVENTOS.GARANTIA_ABERTA,
+      AUDITORIA_EVENTOS.GARANTIA_STATUS_ALTERADO,
+      AUDITORIA_EVENTOS.GARANTIA_FINALIZADA,
+    ];
+
+    const entidadeQueries: Array<Record<string, unknown>> = [
+      { entidade: AUDITORIA_ENTIDADES.CLIENTE, entidadeId: clienteId },
+      { entidade: AUDITORIA_ENTIDADES.ORCAMENTO, entidadeId: { $in: orcamentoIds } },
+      { entidade: AUDITORIA_ENTIDADES.ORDEM_SERVICO, entidadeId: { $in: ordemServicoIds } },
+      { entidade: AUDITORIA_ENTIDADES.VENDA, entidadeId: { $in: vendaIds } },
+      { entidade: AUDITORIA_ENTIDADES.PAGAMENTO },
+      { entidade: AUDITORIA_ENTIDADES.GARANTIA },
+      { entidade: AUDITORIA_ENTIDADES.RECEBIMENTO },
+    ];
+
+    const query: Record<string, unknown> = {
+        empresaId,
+        tipoEvento: { $in: eventosPublicos },
+        $or: entidadeQueries,
+      };
+
+    const logs = await this.logEventoModel
+      .find(query)
+      .sort({ data: -1 })
+      .limit(40)
+      .lean()
+      .exec();
+
+    return logs
+      .filter((log) => this.logPertenceAoCliente(log, clienteId, orcamentoIds, ordemServicoIds, vendaIds))
+      .map((log) => ({
+        id: String(log._id),
+        data: log.data,
+        tipoEvento: log.tipoEvento,
+        titulo: this.getTimelineTitulo(log.tipoEvento),
+        descricao: this.getTimelineDescricao(log.tipoEvento, log.dados),
+        entidade: log.entidade,
+        entidadeId: String(log.entidadeId),
+      }));
+  }
+
+  private logPertenceAoCliente(
+    log: { entidade?: string; entidadeId?: unknown; dados?: Record<string, unknown> },
+    clienteId: Types.ObjectId,
+    orcamentoIds: Types.ObjectId[],
+    ordemServicoIds: Types.ObjectId[],
+    vendaIds: Types.ObjectId[],
+  ) {
+    const entidadeId = String(log.entidadeId);
+    const clienteIdText = String(clienteId);
+
+    if (log.entidade === AUDITORIA_ENTIDADES.CLIENTE) return entidadeId === clienteIdText;
+    if (log.entidade === AUDITORIA_ENTIDADES.ORCAMENTO) return orcamentoIds.some((id) => String(id) === entidadeId);
+    if (log.entidade === AUDITORIA_ENTIDADES.ORDEM_SERVICO) return ordemServicoIds.some((id) => String(id) === entidadeId);
+    if (log.entidade === AUDITORIA_ENTIDADES.VENDA) return vendaIds.some((id) => String(id) === entidadeId);
+    if (String(log.dados?.clienteId || '') === clienteIdText) return true;
+    if (log.dados?.orcamentoId && orcamentoIds.some((id) => String(id) === String(log.dados?.orcamentoId))) return true;
+    if (log.dados?.vendaId && vendaIds.some((id) => String(id) === String(log.dados?.vendaId))) return true;
+    return false;
+  }
+
+  private getTimelineTitulo(tipoEvento: string) {
+    const labels: Record<string, string> = {
+      [AUDITORIA_EVENTOS.RECEBIMENTO_CRIADO]: 'Equipamento recebido',
+      [AUDITORIA_EVENTOS.TERMO_GERADO]: 'Termo gerado',
+      [AUDITORIA_EVENTOS.ORCAMENTO_ENVIADO]: 'Orcamento enviado',
+      [AUDITORIA_EVENTOS.ORCAMENTO_APROVADO]: 'Orcamento aprovado',
+      [AUDITORIA_EVENTOS.ORCAMENTO_REPROVADO]: 'Orcamento reprovado',
+      [AUDITORIA_EVENTOS.OS_CRIADA]: 'Servico iniciado',
+      [AUDITORIA_EVENTOS.OS_STATUS_ALTERADO]: 'Status do servico atualizado',
+      [AUDITORIA_EVENTOS.VENDA_GERADA]: 'Venda gerada',
+      [AUDITORIA_EVENTOS.PAGAMENTO_REGISTRADO]: 'Pagamento registrado',
+      [AUDITORIA_EVENTOS.GARANTIA_ABERTA]: 'Garantia aberta',
+      [AUDITORIA_EVENTOS.GARANTIA_STATUS_ALTERADO]: 'Garantia atualizada',
+      [AUDITORIA_EVENTOS.GARANTIA_FINALIZADA]: 'Garantia finalizada',
+    };
+
+    return labels[tipoEvento] || 'Atualizacao registrada';
+  }
+
+  private getTimelineDescricao(tipoEvento: string, dados?: Record<string, unknown>) {
+    if (tipoEvento === AUDITORIA_EVENTOS.OS_STATUS_ALTERADO) {
+      return `Novo status: ${dados?.statusAtual || '-'}`;
+    }
+
+    if (tipoEvento === AUDITORIA_EVENTOS.ORCAMENTO_APROVADO) {
+      return 'O orcamento foi aprovado e pode seguir para execucao.';
+    }
+
+    if (tipoEvento === AUDITORIA_EVENTOS.ORCAMENTO_REPROVADO) {
+      return 'O orcamento foi reprovado.';
+    }
+
+    if (tipoEvento === AUDITORIA_EVENTOS.PAGAMENTO_REGISTRADO) {
+      return `Pagamento de ${this.formatMoney(dados?.valor)} registrado.`;
+    }
+
+    if (tipoEvento === AUDITORIA_EVENTOS.VENDA_GERADA) {
+      return `Recibo gerado no valor de ${this.formatMoney(dados?.total)}.`;
+    }
+
+    return 'Atualizacao registrada no atendimento.';
+  }
+
+  private formatMoney(value: unknown) {
+    return Number(value ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
 
   private getRefName(value: unknown) {

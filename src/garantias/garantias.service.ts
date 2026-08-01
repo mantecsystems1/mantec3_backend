@@ -5,6 +5,8 @@ import { Garantia, GarantiaDocument } from './schemas/garantia.schema';
 import { EnvioGarantia, EnvioGarantiaDocument } from './schemas/envio-garantia.schema';
 import { RetornoGarantia, RetornoGarantiaDocument } from './schemas/retorno-garantia.schema';
 import { CreditoFornecedor, CreditoFornecedorDocument } from './schemas/credito-fornecedor.schema';
+import { PedidosCompra, PedidosCompraDocument } from '../compras/schemas/pedido-compra.schema';
+import { ItensPedidoCompra, ItensPedidoCompraDocument } from '../compras/schemas/itens-pedido-compra.schema';
 import { CreateGarantiaDto } from './dto/create-garantia.dto';
 import { UpdateGarantiaDto } from './dto/update-garantia.dto';
 import { CreateEnvioGarantiaDto } from './dto/create-envio-garantia.dto';
@@ -25,6 +27,8 @@ export class GarantiasService {
     @InjectModel(EnvioGarantia.name) private envioGarantiaModel: Model<EnvioGarantiaDocument>,
     @InjectModel(RetornoGarantia.name) private retornoGarantiaModel: Model<RetornoGarantiaDocument>,
     @InjectModel(CreditoFornecedor.name) private creditoFornecedorModel: Model<CreditoFornecedorDocument>,
+    @InjectModel(PedidosCompra.name) private pedidosCompraModel: Model<PedidosCompraDocument>,
+    @InjectModel(ItensPedidoCompra.name) private itensPedidoCompraModel: Model<ItensPedidoCompraDocument>,
     private readonly auditoriaService: AuditoriaService,
   ) {}
 
@@ -33,27 +37,66 @@ export class GarantiasService {
       throw new BadRequestException(`Status de garantia invalido: ${createGarantiaDto.status}`);
     }
 
-    const createdGarantia = new this.garantiaModel(createGarantiaDto);
+    const fornecedorId = createGarantiaDto.fornecedorId || await this.inferFornecedorPorProduto(
+      createGarantiaDto.produtoId,
+      createGarantiaDto.empresaId,
+    );
+
+    if (!fornecedorId) {
+      throw new BadRequestException('Fornecedor nao informado e nao foi possivel inferir pelo historico de compras do produto.');
+    }
+
+    const garantiaData = { ...createGarantiaDto, fornecedorId };
+    const createdGarantia = new this.garantiaModel(garantiaData);
     const saved = await createdGarantia.save();
 
     if (actorId) {
       await this.auditoriaService.registrarEventoNegocio({
-        empresaId: createGarantiaDto.empresaId,
+        empresaId: garantiaData.empresaId,
         usuarioId: actorId,
         tipoEvento: AUDITORIA_EVENTOS.GARANTIA_ABERTA,
         entidade: AUDITORIA_ENTIDADES.GARANTIA,
         entidadeId: saved._id as Types.ObjectId,
         dados: {
-          status: createGarantiaDto.status,
-          clienteId: createGarantiaDto.clienteId,
-          vendaId: createGarantiaDto.vendaId,
-          produtoId: createGarantiaDto.produtoId,
-          quantidade: createGarantiaDto.quantidade,
+          status: garantiaData.status,
+          clienteId: garantiaData.clienteId,
+          vendaId: garantiaData.vendaId,
+          produtoId: garantiaData.produtoId,
+          fornecedorId: garantiaData.fornecedorId,
+          quantidade: garantiaData.quantidade,
         },
       });
     }
 
     return saved;
+  }
+
+  private async inferFornecedorPorProduto(produtoId: string, empresaId: string) {
+    if (!Types.ObjectId.isValid(produtoId) || !Types.ObjectId.isValid(empresaId)) {
+      return '';
+    }
+
+    const itens = await this.itensPedidoCompraModel
+      .find({ produtoId: new Types.ObjectId(produtoId) })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .lean()
+      .exec();
+
+    for (const item of itens) {
+      const pedido = await this.pedidosCompraModel
+        .findOne({
+          _id: item.pedidoCompraId,
+          empresaId: new Types.ObjectId(empresaId),
+        })
+        .lean()
+        .exec();
+
+      if (pedido?.fornecedorId) {
+        return String(pedido.fornecedorId);
+      }
+    }
+
+    return '';
   }
 
   findAllGarantias() {

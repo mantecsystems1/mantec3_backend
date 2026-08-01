@@ -4,12 +4,16 @@ import { Model, Types } from 'mongoose';
 import { Fornecedor, FornecedorDocument } from './schemas/fornecedor.schema';
 import { PedidosCompra, PedidosCompraDocument } from './schemas/pedido-compra.schema';
 import { ItensPedidoCompra, ItensPedidoCompraDocument } from './schemas/itens-pedido-compra.schema';
+import { MovimentosEstoque, MovimentosEstoqueDocument } from '../estoque/schemas/movimento-estoque.schema';
 import { CreateFornecedorDto } from './dto/create-fornecedor.dto';
 import { UpdateFornecedorDto } from './dto/update-fornecedor.dto';
 import { CreatePedidoCompraDto } from './dto/create-pedido-compra.dto';
 import { UpdatePedidoCompraDto } from './dto/update-pedido-compra.dto';
 import { CreateItensPedidoCompraDto } from './dto/create-itens-pedido-compra.dto';
 import { UpdateItensPedidoCompraDto } from './dto/update-itens-pedido-compra.dto';
+import { MOVIMENTO_ESTOQUE_ORIGEM, MOVIMENTO_ESTOQUE_TIPO } from '../estoque/movimento-estoque.types';
+
+const PEDIDO_COMPRA_STATUS_RECEBIDO = 'recebido';
 
 @Injectable()
 export class ComprasService {
@@ -17,6 +21,7 @@ export class ComprasService {
     @InjectModel(Fornecedor.name) private fornecedorModel: Model<FornecedorDocument>,
     @InjectModel(PedidosCompra.name) private pedidosCompraModel: Model<PedidosCompraDocument>,
     @InjectModel(ItensPedidoCompra.name) private itensPedidoCompraModel: Model<ItensPedidoCompraDocument>,
+    @InjectModel(MovimentosEstoque.name) private movimentosEstoqueModel: Model<MovimentosEstoqueDocument>,
   ) { }
 
   // Fornecedor CRUD
@@ -102,6 +107,8 @@ export class ComprasService {
         console.warn('Nenhum item recebido para este pedido.');
       }
 
+      await this.sincronizarEntradaEstoquePedido(pedido._id.toString(), pedidoDto.status);
+
       // Retorna o pedido completo com itens
       return await this.findOnePedidoCompra(pedido._id.toString());
     } catch (error) {
@@ -161,6 +168,8 @@ export class ComprasService {
         }
       }
 
+      await this.sincronizarEntradaEstoquePedido(id, pedido.status);
+
       return await this.findOnePedidoCompra(id);
     } catch (error) {
       console.error('Erro ao atualizar pedido de compra:', error);
@@ -168,7 +177,8 @@ export class ComprasService {
     }
   }
 
-  removePedidoCompra(id: string) {
+  async removePedidoCompra(id: string) {
+    await this.removerEntradasEstoquePedido(id);
     return this.pedidosCompraModel.findByIdAndDelete(id).exec();
   }
 
@@ -244,5 +254,46 @@ export class ComprasService {
       itens,
       total,
     };
+  }
+
+  private async sincronizarEntradaEstoquePedido(pedidoCompraId: string, status?: string) {
+    await this.removerEntradasEstoquePedido(pedidoCompraId);
+
+    if (status !== PEDIDO_COMPRA_STATUS_RECEBIDO) {
+      return;
+    }
+
+    const pedido = await this.pedidosCompraModel.findById(pedidoCompraId).lean().exec();
+    if (!pedido) {
+      throw new BadRequestException('Pedido de compra nao encontrado para entrada no estoque.');
+    }
+
+    const itens = await this.itensPedidoCompraModel.find({ pedidoCompraId }).lean().exec();
+    const movimentos = itens
+      .filter((item) => Number(item.quantidade) > 0)
+      .map((item) => ({
+        empresaId: pedido.empresaId,
+        produtoId: item.produtoId,
+        tipo: MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA,
+        quantidade: Number(item.quantidade),
+        origemTipo: MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA,
+        origemId: new Types.ObjectId(pedidoCompraId),
+      }));
+
+    if (movimentos.length > 0) {
+      await this.movimentosEstoqueModel.insertMany(movimentos);
+    }
+  }
+
+  private async removerEntradasEstoquePedido(pedidoCompraId: string) {
+    if (!Types.ObjectId.isValid(pedidoCompraId)) {
+      return;
+    }
+
+    await this.movimentosEstoqueModel.deleteMany({
+      tipo: MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA,
+      origemTipo: MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA,
+      origemId: new Types.ObjectId(pedidoCompraId),
+    });
   }
 }

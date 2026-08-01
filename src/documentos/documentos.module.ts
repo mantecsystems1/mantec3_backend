@@ -28,5 +28,6 @@ import { DocumentosService } from './documentos.service';
   ],
   controllers: [DocumentosController],
   providers: [DocumentosService],
+  exports: [DocumentosService],
 })
 export class DocumentosModule {}

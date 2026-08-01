@@ -8,6 +8,12 @@ export class Notificacao {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Empresa', required: true })
   empresaId: Types.ObjectId;
 
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Usuario' })
+  usuarioId?: Types.ObjectId;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Cliente' })
+  clienteId?: Types.ObjectId;
+
   @Prop({ required: true })
   tipo: string;
 

@@ -7,5 +7,5 @@ export class CreateGarantiaDto {
   quantidade: number;
   motivo: string;
   status: string;
-  fornecedorId: string;
+  fornecedorId?: string;
 }

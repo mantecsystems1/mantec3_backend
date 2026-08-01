@@ -4,6 +4,8 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AuthTokenGuard } from '../src/common/guards/auth-token.guard';
 import { PermissionGuard } from '../src/common/guards/permission.guard';
+import { ComprasController } from '../src/compras/compras.controller';
+import { ComprasService } from '../src/compras/compras.service';
 import { EstoqueController } from '../src/estoque/estoque.controller';
 import { EstoqueService } from '../src/estoque/estoque.service';
 import { PagamentosController } from '../src/financeiro/pagamentos/pagamentos.controller';
@@ -23,6 +25,12 @@ import { OS_STATUS } from '../src/ordens-servico/state/os.states';
 
 describe('Fluxo operacional (e2e)', () => {
   let app: INestApplication<App>;
+  let disponibilidadeProduto = {
+    produtoId: 'produto-1',
+    saldoFisico: 5,
+    reservado: 1,
+    disponivel: 4,
+  };
 
   const orcamentosService = {
     update: jest.fn(),
@@ -42,6 +50,14 @@ describe('Fluxo operacional (e2e)', () => {
     create: jest.fn(),
     getDisponibilidadeProduto: jest.fn(),
     getDisponibilidadeProdutos: jest.fn(),
+  };
+
+  const comprasService = {
+    createPedidoCompra: jest.fn(),
+    findAllPedidosCompra: jest.fn(),
+    findOnePedidoCompra: jest.fn(),
+    updatePedidoCompra: jest.fn(),
+    removePedidoCompra: jest.fn(),
   };
 
   const vendasService = {
@@ -103,13 +119,39 @@ describe('Fluxo operacional (e2e)', () => {
       criadoPor: usuarioId,
       ...payload,
     }));
-    estoqueService.getDisponibilidadeProduto.mockImplementation((produtoId: string) => ({
-      produtoId,
+    disponibilidadeProduto = {
+      produtoId: 'produto-1',
       saldoFisico: 5,
       reservado: 1,
       disponivel: 4,
+    };
+    estoqueService.getDisponibilidadeProduto.mockImplementation((produtoId: string) => ({
+      ...disponibilidadeProduto,
+      produtoId,
     }));
     estoqueService.getDisponibilidadeProdutos.mockResolvedValue([]);
+
+    comprasService.createPedidoCompra.mockImplementation((payload: Record<string, unknown>) => {
+      const itens = Array.isArray(payload.itens) ? payload.itens as Array<Record<string, unknown>> : [];
+
+      if (payload.status === 'recebido') {
+        const entradaProduto = itens
+          .filter((item) => item.produtoId === 'produto-1')
+          .reduce((sum, item) => sum + Number(item.quantidade || 0), 0);
+
+        disponibilidadeProduto = {
+          produtoId: 'produto-1',
+          saldoFisico: disponibilidadeProduto.saldoFisico + entradaProduto,
+          reservado: disponibilidadeProduto.reservado,
+          disponivel: disponibilidadeProduto.disponivel + entradaProduto,
+        };
+      }
+
+      return {
+        _id: 'pedido-compra-1',
+        ...payload,
+      };
+    });
 
     vendasService.create.mockImplementation((payload: Record<string, unknown>, usuarioId?: string) => ({
       _id: 'venda-1',
@@ -155,6 +197,7 @@ describe('Fluxo operacional (e2e)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       controllers: [
         OrcamentosController,
+        ComprasController,
         OsController,
         EstoqueController,
         VendasController,
@@ -163,6 +206,7 @@ describe('Fluxo operacional (e2e)', () => {
       ],
       providers: [
         { provide: OrcamentosService, useValue: orcamentosService },
+        { provide: ComprasService, useValue: comprasService },
         { provide: OsService, useValue: osService },
         { provide: EstoqueService, useValue: estoqueService },
         { provide: VendasService, useValue: vendasService },
@@ -287,6 +331,68 @@ describe('Fluxo operacional (e2e)', () => {
       },
       'user-e2e',
     );
+  });
+
+  it('reflete compra recebida na disponibilidade do estoque', async () => {
+    disponibilidadeProduto = {
+      produtoId: 'produto-1',
+      saldoFisico: 2,
+      reservado: 0,
+      disponivel: 2,
+    };
+
+    await request(app.getHttpServer())
+      .post('/compras/pedidos-compra')
+      .send({
+        empresaId: 'empresa-e2e',
+        fornecedorId: 'fornecedor-1',
+        status: 'recebido',
+        itens: [
+          {
+            produtoId: 'produto-1',
+            quantidade: 5,
+            valorUnitario: '10.00',
+          },
+        ],
+      })
+      .expect(201)
+      .expect({
+        _id: 'pedido-compra-1',
+        empresaId: 'empresa-e2e',
+        fornecedorId: 'fornecedor-1',
+        status: 'recebido',
+        itens: [
+          {
+            produtoId: 'produto-1',
+            quantidade: 5,
+            valorUnitario: '10.00',
+          },
+        ],
+      });
+
+    await request(app.getHttpServer())
+      .get('/estoque/disponibilidade/produto-1')
+      .expect(200)
+      .expect({
+        produtoId: 'produto-1',
+        saldoFisico: 7,
+        reservado: 0,
+        disponivel: 7,
+      });
+
+    expect(comprasService.createPedidoCompra).toHaveBeenCalledWith({
+      empresaId: 'empresa-e2e',
+      fornecedorId: 'fornecedor-1',
+      status: 'recebido',
+      itens: [
+        {
+          produtoId: 'produto-1',
+          quantidade: 5,
+          valorUnitario: '10.00',
+        },
+      ],
+    });
+    expect(estoqueService.getDisponibilidadeProduto).toHaveBeenCalledWith('produto-1');
   });
 
   it('executa contrato HTTP financeiro e garantia apos venda paga', async () => {

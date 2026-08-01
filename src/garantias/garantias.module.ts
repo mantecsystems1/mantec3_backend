@@ -7,6 +7,8 @@ import { EnvioGarantia, EnvioGarantiaSchema } from './schemas/envio-garantia.sch
 import { RetornoGarantia, RetornoGarantiaSchema } from './schemas/retorno-garantia.schema';
 import { CreditoFornecedor, CreditoFornecedorSchema } from './schemas/credito-fornecedor.schema';
 import { AuditoriaModule } from '../auditoria/auditoria.module';
+import { PedidosCompra, PedidosCompraSchema } from '../compras/schemas/pedido-compra.schema';
+import { ItensPedidoCompra, ItensPedidoCompraSchema } from '../compras/schemas/itens-pedido-compra.schema';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { AuditoriaModule } from '../auditoria/auditoria.module';
       { name: EnvioGarantia.name, schema: EnvioGarantiaSchema },
       { name: RetornoGarantia.name, schema: RetornoGarantiaSchema },
       { name: CreditoFornecedor.name, schema: CreditoFornecedorSchema },
+      { name: PedidosCompra.name, schema: PedidosCompraSchema },
+      { name: ItensPedidoCompra.name, schema: ItensPedidoCompraSchema },
     ]),
   ],
   controllers: [GarantiasController],

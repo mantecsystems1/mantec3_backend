@@ -1,9 +1,12 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Types } from 'mongoose';
 
 export class CreateNotificacaoDto {
   @IsNotEmpty()
   empresaId: Types.ObjectId;
+
+  @IsOptional()
+  clienteId?: Types.ObjectId | string;
 
   @IsNotEmpty()
   @IsString()
