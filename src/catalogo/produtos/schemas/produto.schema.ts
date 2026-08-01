@@ -22,6 +22,30 @@ export class Produto {
 
   @Prop({ default: true })
   ativo: boolean;
+
+  @Prop()
+  fotoUrl?: string;
+
+  @Prop()
+  fotoNomeOriginal?: string;
+
+  @Prop()
+  fotoNomeArquivo?: string;
+
+  @Prop()
+  fotoMimeType?: string;
+
+  @Prop()
+  fotoTamanhoBytes?: number;
+
+  @Prop()
+  fotoHashSha256?: string;
+
+  @Prop()
+  fotoOrigemCaptura?: string;
+
+  @Prop()
+  fotoCapturadaEm?: Date;
 }
 
 export const ProdutoSchema = SchemaFactory.createForClass(Produto);
