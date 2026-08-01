@@ -12,70 +12,69 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 
 @Controller('vendas')
+@UseGuards(AuthTokenGuard, PermissionGuard)
 export class VendasController {
   constructor(private readonly vendasService: VendasService) {}
 
   // Venda routes
   @Post()
-  @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.VENDA_GERAR)
   create(@Body() createVendaDto: CreateVendaDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.vendasService.create(createVendaDto, user?.id);
+    return this.vendasService.create(createVendaDto, user?.id, user?.empresaId);
   }
 
   @Get()
-  findAll() {
-    return this.vendasService.findAll();
-  }
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.vendasService.findOne(id);
-  }
-
-  @Patch(':id')
-  @UseGuards(AuthTokenGuard, PermissionGuard)
-  @RequireEvento(EVENTOS_NEGOCIO.VENDA_GERAR)
-  update(@Param('id') id: string, @Body() updateVendaDto: UpdateVendaDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.vendasService.update(id, updateVendaDto, user?.id);
-  }
-
-  @Delete(':id')
-  @UseGuards(AuthTokenGuard, PermissionGuard)
-  @RequireEvento(EVENTOS_NEGOCIO.VENDA_CANCELAR)
-  remove(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.vendasService.remove(id, user?.id);
+  @RequireEvento(EVENTOS_NEGOCIO.VENDA_CONSULTAR)
+  findAll(@CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.findAll(user?.empresaId);
   }
 
   // ItensVenda routes
   @Post('itens')
-  @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.VENDA_GERAR)
-  createItem(@Body() createItensVendaDto: CreateItensVendaDto) {
-    return this.vendasService.createItem(createItensVendaDto);
+  createItem(@Body() createItensVendaDto: CreateItensVendaDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.createItem(createItensVendaDto, user?.empresaId);
   }
 
   @Get('itens')
-  findAllItems() {
-    return this.vendasService.findAllItems();
+  @RequireEvento(EVENTOS_NEGOCIO.VENDA_CONSULTAR)
+  findAllItems(@CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.findAllItems(user?.empresaId);
   }
 
   @Get('itens/:id')
-  findOneItem(@Param('id') id: string) {
-    return this.vendasService.findOneItem(id);
+  @RequireEvento(EVENTOS_NEGOCIO.VENDA_CONSULTAR)
+  findOneItem(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.findOneItem(id, user?.empresaId);
   }
 
   @Patch('itens/:id')
-  @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.VENDA_GERAR)
-  updateItem(@Param('id') id: string, @Body() updateItensVendaDto: UpdateItensVendaDto) {
-    return this.vendasService.updateItem(id, updateItensVendaDto);
+  updateItem(@Param('id') id: string, @Body() updateItensVendaDto: UpdateItensVendaDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.updateItem(id, updateItensVendaDto, user?.empresaId);
   }
 
   @Delete('itens/:id')
-  @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.VENDA_CANCELAR)
-  removeItem(@Param('id') id: string) {
-    return this.vendasService.removeItem(id);
+  removeItem(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.removeItem(id, user?.empresaId);
+  }
+
+  @Get(':id')
+  @RequireEvento(EVENTOS_NEGOCIO.VENDA_CONSULTAR)
+  findOne(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.findOne(id, user?.empresaId);
+  }
+
+  @Patch(':id')
+  @RequireEvento(EVENTOS_NEGOCIO.VENDA_GERAR)
+  update(@Param('id') id: string, @Body() updateVendaDto: UpdateVendaDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.update(id, updateVendaDto, user?.id, user?.empresaId);
+  }
+
+  @Delete(':id')
+  @RequireEvento(EVENTOS_NEGOCIO.VENDA_CANCELAR)
+  remove(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.remove(id, user?.id, user?.empresaId);
   }
 }

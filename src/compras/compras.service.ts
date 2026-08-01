@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Fornecedor, FornecedorDocument } from './schemas/fornecedor.schema';
@@ -12,6 +12,8 @@ import { UpdatePedidoCompraDto } from './dto/update-pedido-compra.dto';
 import { CreateItensPedidoCompraDto } from './dto/create-itens-pedido-compra.dto';
 import { UpdateItensPedidoCompraDto } from './dto/update-itens-pedido-compra.dto';
 import { MOVIMENTO_ESTOQUE_ORIGEM, MOVIMENTO_ESTOQUE_TIPO } from '../estoque/movimento-estoque.types';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 
 const PEDIDO_COMPRA_STATUS_RECEBIDO = 'recebido';
 
@@ -22,11 +24,13 @@ export class ComprasService {
     @InjectModel(PedidosCompra.name) private pedidosCompraModel: Model<PedidosCompraDocument>,
     @InjectModel(ItensPedidoCompra.name) private itensPedidoCompraModel: Model<ItensPedidoCompraDocument>,
     @InjectModel(MovimentosEstoque.name) private movimentosEstoqueModel: Model<MovimentosEstoqueDocument>,
+    private readonly auditoriaService: AuditoriaService,
   ) { }
 
   // Fornecedor CRUD
-  async createFornecedor(createFornecedorDto: CreateFornecedorDto) {
+  async createFornecedor(createFornecedorDto: CreateFornecedorDto, actorId?: string, actorEmpresaId?: string) {
     console.log('CreateFornecedor DTO recebido:', createFornecedorDto);
+    this.assertEmpresaPermitida(createFornecedorDto.empresaId, actorEmpresaId);
 
     const normalizedCnpj = createFornecedorDto.cnpj.replace(/\D/g, '');
 
@@ -45,6 +49,10 @@ export class ComprasService {
         cnpj: normalizedCnpj,
       });
 
+      if (actorId) {
+        await this.registrarAuditoriaFornecedor(fornecedor, actorId, 'criado');
+      }
+
       return fornecedor;
     } catch (err: any) {
       console.error('Erro Mongo:', err);
@@ -58,24 +66,44 @@ export class ComprasService {
 
   }
 
-  findAllFornecedores() {
-    return this.fornecedorModel.find().exec();
+  findAllFornecedores(empresaId?: string) {
+    return this.fornecedorModel.find(this.getEmpresaQuery(empresaId)).exec();
   }
 
-  findOneFornecedor(id: string) {
-    return this.fornecedorModel.findById(id).exec();
+  findOneFornecedor(id: string, empresaId?: string) {
+    return this.fornecedorModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).exec();
   }
 
-  updateFornecedor(id: string, updateFornecedorDto: UpdateFornecedorDto) {
-    return this.fornecedorModel.findByIdAndUpdate(id, updateFornecedorDto, { new: true }).exec();
+  async updateFornecedor(id: string, updateFornecedorDto: UpdateFornecedorDto, actorId?: string, actorEmpresaId?: string) {
+    if (updateFornecedorDto.empresaId) {
+      this.assertEmpresaPermitida(updateFornecedorDto.empresaId, actorEmpresaId);
+    }
+
+    const fornecedor = await this.fornecedorModel.findOneAndUpdate(
+      this.getEmpresaQuery(actorEmpresaId, { _id: id }),
+      updateFornecedorDto,
+      { new: true },
+    ).exec();
+
+    if (actorId && fornecedor) {
+      await this.registrarAuditoriaFornecedor(fornecedor, actorId, 'atualizado');
+    }
+
+    return fornecedor;
   }
 
-  removeFornecedor(id: string) {
-    return this.fornecedorModel.findByIdAndDelete(id).exec();
+  async removeFornecedor(id: string, actorId?: string, actorEmpresaId?: string) {
+    const fornecedor = await this.fornecedorModel.findOneAndDelete(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
+
+    if (actorId && fornecedor) {
+      await this.registrarAuditoriaFornecedor(fornecedor, actorId, 'removido');
+    }
+
+    return fornecedor;
   }
 
   // PedidosCompra CRUD
-  async createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto) {
+  async createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
     try {
       console.log(
         'DTO recebido:\n',
@@ -83,6 +111,8 @@ export class ComprasService {
       );
 
       const { itens = [], ...pedidoDto } = createPedidoCompraDto;
+      this.assertEmpresaPermitida(pedidoDto.empresaId, actorEmpresaId);
+      await this.assertFornecedorPertenceEmpresa(pedidoDto.fornecedorId, actorEmpresaId);
 
       console.log('Itens recebidos:', itens);
 
@@ -101,7 +131,7 @@ export class ComprasService {
             produtoId: String(item.produtoId),
             quantidade: Number(item.quantidade),
             valorUnitario: String(item.valorUnitario),
-          });
+          }, actorId, actorEmpresaId);
         }
       } else {
         console.warn('Nenhum item recebido para este pedido.');
@@ -109,17 +139,21 @@ export class ComprasService {
 
       await this.sincronizarEntradaEstoquePedido(pedido._id.toString(), pedidoDto.status);
 
+      if (actorId) {
+        await this.registrarAuditoriaPedidoCompra(pedido, actorId, 'criado');
+      }
+
       // Retorna o pedido completo com itens
-      return await this.findOnePedidoCompra(pedido._id.toString());
+      return await this.findOnePedidoCompra(pedido._id.toString(), actorEmpresaId);
     } catch (error) {
       console.error('Erro ao criar pedido de compra:', error);
       throw error;
     }
   }
 
-  async findAllPedidosCompra() {
+  async findAllPedidosCompra(empresaId?: string) {
     const pedidos = await this.pedidosCompraModel
-      .find()
+      .find(this.getEmpresaQuery(empresaId))
       .populate('empresaId', 'nomeFantasia razaoSocial')
       .populate('fornecedorId', 'nome cnpj')
       .lean()
@@ -128,9 +162,9 @@ export class ComprasService {
     return Promise.all(pedidos.map((pedido) => this.attachItensPedidoCompra(pedido)));
   }
 
-  async findOnePedidoCompra(id: string) {
+  async findOnePedidoCompra(id: string, empresaId?: string) {
     const pedido = await this.pedidosCompraModel
-      .findById(id)
+      .findOne(this.getEmpresaQuery(empresaId, { _id: id }))
       .populate('empresaId', 'nomeFantasia razaoSocial')
       .populate('fornecedorId', 'nome cnpj')
       .lean()
@@ -139,15 +173,25 @@ export class ComprasService {
     return pedido ? this.attachItensPedidoCompra(pedido) : null;
   }
 
-  async updatePedidoCompra(id: string, updatePedidoCompraDto: UpdatePedidoCompraDto) {
+  async updatePedidoCompra(id: string, updatePedidoCompraDto: UpdatePedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
     try {
       const { itens, ...pedidoDto } = updatePedidoCompraDto;
+      if (pedidoDto.empresaId) {
+        this.assertEmpresaPermitida(pedidoDto.empresaId, actorEmpresaId);
+      }
+      if (pedidoDto.fornecedorId) {
+        await this.assertFornecedorPertenceEmpresa(pedidoDto.fornecedorId, actorEmpresaId);
+      }
 
       // Update the main pedido document
-      const pedido = await this.pedidosCompraModel.findByIdAndUpdate(id, pedidoDto, { new: true }).exec();
+      const pedido = await this.pedidosCompraModel.findOneAndUpdate(
+        this.getEmpresaQuery(actorEmpresaId, { _id: id }),
+        pedidoDto,
+        { new: true },
+      ).exec();
 
       if (!pedido) {
-        throw new BadRequestException('Pedido de compra não encontrado');
+        throw new NotFoundException('Pedido de compra nao encontrado');
       }
 
       // If itens are provided, update them by deleting old and creating new
@@ -163,28 +207,45 @@ export class ComprasService {
               produtoId: String(item.produtoId),
               quantidade: Number(item.quantidade),
               valorUnitario: String(item.valorUnitario),
-            });
+            }, actorId, actorEmpresaId);
           }
         }
       }
 
       await this.sincronizarEntradaEstoquePedido(id, pedido.status);
 
-      return await this.findOnePedidoCompra(id);
+      if (actorId) {
+        await this.registrarAuditoriaPedidoCompra(pedido, actorId, 'atualizado');
+      }
+
+      return await this.findOnePedidoCompra(id, actorEmpresaId);
     } catch (error) {
       console.error('Erro ao atualizar pedido de compra:', error);
       throw error;
     }
   }
 
-  async removePedidoCompra(id: string) {
+  async removePedidoCompra(id: string, actorId?: string, actorEmpresaId?: string) {
+    const pedido = await this.pedidosCompraModel.findOne(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
+    if (!pedido) {
+      throw new NotFoundException('Pedido de compra nao encontrado');
+    }
+
     await this.removerEntradasEstoquePedido(id);
-    return this.pedidosCompraModel.findByIdAndDelete(id).exec();
+    const removed = await this.pedidosCompraModel.findOneAndDelete(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
+
+    if (actorId && pedido) {
+      await this.registrarAuditoriaPedidoCompra(pedido, actorId, 'removido');
+    }
+
+    return removed;
   }
 
   // ItensPedidoCompra CRUD
-  createItensPedidoCompra(createItensPedidoCompraDto: CreateItensPedidoCompraDto) {
+  async createItensPedidoCompra(createItensPedidoCompraDto: CreateItensPedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
     try {
+      await this.assertPedidoCompraPertenceEmpresa(createItensPedidoCompraDto.pedidoCompraId, actorEmpresaId);
+
       const itemData: any = { ...createItensPedidoCompraDto };
       if (
         createItensPedidoCompraDto.valorUnitario !== undefined &&
@@ -202,22 +263,40 @@ export class ComprasService {
         }
       }
       const createdItem = new this.itensPedidoCompraModel(itemData);
-      return createdItem.save();
+      const saved = await createdItem.save();
+
+      if (actorId) {
+        await this.registrarAuditoriaItemPedidoCompra(saved, actorId, 'criado');
+      }
+
+      return saved;
     } catch (error) {
       console.error('Erro ao criar item do pedido de compra:', error);
       throw error;
     }
   }
 
-  findAllItensPedidoCompra() {
+  async findAllItensPedidoCompra(empresaId?: string) {
+    const query: Record<string, unknown> = {};
+    if (empresaId) {
+      query.pedidoCompraId = { $in: await this.getPedidoCompraIdsEmpresa(empresaId) };
+    }
+
     return this.itensPedidoCompraModel
-      .find()
+      .find(query)
       .populate('pedidoCompraId', 'status observacoes')
       .populate('produtoId', 'nome codigoInterno precoVenda')
       .exec();
   }
 
-  findOneItensPedidoCompra(id: string) {
+  async findOneItensPedidoCompra(id: string, empresaId?: string) {
+    const item = await this.itensPedidoCompraModel.findById(id).exec();
+    if (!item) {
+      return null;
+    }
+
+    await this.assertPedidoCompraPertenceEmpresa(item.pedidoCompraId.toString(), empresaId);
+
     return this.itensPedidoCompraModel
       .findById(id)
       .populate('pedidoCompraId', 'status observacoes')
@@ -225,16 +304,45 @@ export class ComprasService {
       .exec();
   }
 
-  updateItensPedidoCompra(id: string, updateItensPedidoCompraDto: UpdateItensPedidoCompraDto) {
+  async updateItensPedidoCompra(id: string, updateItensPedidoCompraDto: UpdateItensPedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
+    const existing = await this.itensPedidoCompraModel.findById(id).exec();
+    if (!existing) {
+      throw new NotFoundException('Item de pedido de compra nao encontrado');
+    }
+
+    await this.assertPedidoCompraPertenceEmpresa(
+      (updateItensPedidoCompraDto.pedidoCompraId ?? existing.pedidoCompraId).toString(),
+      actorEmpresaId,
+    );
+
     const updateData: any = { ...updateItensPedidoCompraDto };
     if (updateItensPedidoCompraDto.valorUnitario) {
       updateData.valorUnitario = Types.Decimal128.fromString(updateItensPedidoCompraDto.valorUnitario);
     }
-    return this.itensPedidoCompraModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
+    const item = await this.itensPedidoCompraModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
+
+    if (actorId && item) {
+      await this.registrarAuditoriaItemPedidoCompra(item, actorId, 'atualizado');
+    }
+
+    return item;
   }
 
-  removeItensPedidoCompra(id: string) {
-    return this.itensPedidoCompraModel.findByIdAndDelete(id).exec();
+  async removeItensPedidoCompra(id: string, actorId?: string, actorEmpresaId?: string) {
+    const existing = await this.itensPedidoCompraModel.findById(id).exec();
+    if (!existing) {
+      throw new NotFoundException('Item de pedido de compra nao encontrado');
+    }
+
+    await this.assertPedidoCompraPertenceEmpresa(existing.pedidoCompraId.toString(), actorEmpresaId);
+
+    const item = await this.itensPedidoCompraModel.findByIdAndDelete(id).exec();
+
+    if (actorId && item) {
+      await this.registrarAuditoriaItemPedidoCompra(item, actorId, 'removido');
+    }
+
+    return item;
   }
 
   private async attachItensPedidoCompra(pedido: any) {
@@ -295,5 +403,142 @@ export class ComprasService {
       origemTipo: MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA,
       origemId: new Types.ObjectId(pedidoCompraId),
     });
+  }
+
+  private getEmpresaQuery(empresaId?: string, base: Record<string, unknown> = {}) {
+    return empresaId ? { ...base, empresaId } : base;
+  }
+
+  private assertEmpresaPermitida(empresaId?: string, actorEmpresaId?: string) {
+    if (actorEmpresaId && empresaId && String(empresaId) !== String(actorEmpresaId)) {
+      throw new BadRequestException('Empresa do registro nao corresponde a empresa do usuario autenticado.');
+    }
+  }
+
+  private async assertFornecedorPertenceEmpresa(fornecedorId: string, empresaId?: string) {
+    if (!empresaId) {
+      return;
+    }
+
+    const fornecedor = await this.fornecedorModel.exists({ _id: fornecedorId, empresaId }).exec();
+    if (!fornecedor) {
+      throw new NotFoundException('Fornecedor nao encontrado');
+    }
+  }
+
+  private async assertPedidoCompraPertenceEmpresa(pedidoCompraId: string, empresaId?: string) {
+    if (!empresaId) {
+      return;
+    }
+
+    const pedido = await this.pedidosCompraModel.exists({ _id: pedidoCompraId, empresaId }).exec();
+    if (!pedido) {
+      throw new NotFoundException('Pedido de compra nao encontrado');
+    }
+  }
+
+  private async getPedidoCompraIdsEmpresa(empresaId: string) {
+    const pedidos = await this.pedidosCompraModel.find({ empresaId }).select('_id').lean().exec();
+    return pedidos.map((pedido) => pedido._id);
+  }
+
+  private async registrarAuditoriaFornecedor(
+    fornecedor: FornecedorDocument,
+    actorId: string,
+    operacao: 'criado' | 'atualizado' | 'removido',
+  ) {
+    await this.auditoriaService.registrarEventoNegocio({
+      empresaId: fornecedor.empresaId,
+      usuarioId: actorId,
+      tipoEvento: this.getEventoAuditoriaFornecedor(operacao),
+      entidade: AUDITORIA_ENTIDADES.FORNECEDOR,
+      entidadeId: fornecedor._id as Types.ObjectId,
+      dados: {
+        operacao,
+        nome: fornecedor.nome,
+        cnpj: fornecedor.cnpj,
+      },
+    });
+  }
+
+  private async registrarAuditoriaPedidoCompra(
+    pedido: PedidosCompraDocument,
+    actorId: string,
+    operacao: 'criado' | 'atualizado' | 'removido',
+  ) {
+    await this.auditoriaService.registrarEventoNegocio({
+      empresaId: pedido.empresaId,
+      usuarioId: actorId,
+      tipoEvento: this.getEventoAuditoriaPedidoCompra(operacao),
+      entidade: AUDITORIA_ENTIDADES.PEDIDO_COMPRA,
+      entidadeId: pedido._id as Types.ObjectId,
+      dados: {
+        operacao,
+        fornecedorId: pedido.fornecedorId?.toString(),
+        status: pedido.status,
+      },
+    });
+  }
+
+  private async registrarAuditoriaItemPedidoCompra(
+    item: ItensPedidoCompraDocument,
+    actorId: string,
+    operacao: 'criado' | 'atualizado' | 'removido',
+  ) {
+    const pedido = await this.pedidosCompraModel.findById(item.pedidoCompraId).exec();
+    if (!pedido) {
+      return;
+    }
+
+    await this.auditoriaService.registrarEventoNegocio({
+      empresaId: pedido.empresaId,
+      usuarioId: actorId,
+      tipoEvento: this.getEventoAuditoriaItemPedidoCompra(operacao),
+      entidade: AUDITORIA_ENTIDADES.ITEM_PEDIDO_COMPRA,
+      entidadeId: item._id as Types.ObjectId,
+      dados: {
+        operacao,
+        pedidoCompraId: item.pedidoCompraId?.toString(),
+        produtoId: item.produtoId?.toString(),
+        quantidade: item.quantidade,
+        valorUnitario: item.valorUnitario?.toString(),
+      },
+    });
+  }
+
+  private getEventoAuditoriaFornecedor(operacao: 'criado' | 'atualizado' | 'removido') {
+    if (operacao === 'atualizado') {
+      return AUDITORIA_EVENTOS.FORNECEDOR_ATUALIZADO;
+    }
+
+    if (operacao === 'removido') {
+      return AUDITORIA_EVENTOS.FORNECEDOR_REMOVIDO;
+    }
+
+    return AUDITORIA_EVENTOS.FORNECEDOR_CRIADO;
+  }
+
+  private getEventoAuditoriaPedidoCompra(operacao: 'criado' | 'atualizado' | 'removido') {
+    if (operacao === 'atualizado') {
+      return AUDITORIA_EVENTOS.PEDIDO_COMPRA_ATUALIZADO;
+    }
+
+    if (operacao === 'removido') {
+      return AUDITORIA_EVENTOS.PEDIDO_COMPRA_REMOVIDO;
+    }
+
+    return AUDITORIA_EVENTOS.PEDIDO_COMPRA_CRIADO;
+  }
+
+  private getEventoAuditoriaItemPedidoCompra(operacao: 'criado' | 'atualizado' | 'removido') {
+    if (operacao === 'atualizado') {
+      return AUDITORIA_EVENTOS.ITEM_PEDIDO_COMPRA_ATUALIZADO;
+    }
+
+    if (operacao === 'removido') {
+      return AUDITORIA_EVENTOS.ITEM_PEDIDO_COMPRA_REMOVIDO;
+    }
+
+    return AUDITORIA_EVENTOS.ITEM_PEDIDO_COMPRA_CRIADO;
   }
 }

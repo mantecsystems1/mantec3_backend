@@ -26,8 +26,8 @@ export class DocumentosService {
     @InjectModel(TermosRecebimento.name) private readonly termoModel: Model<TermosRecebimentoDocument>,
   ) {}
 
-  async gerarOrcamentoPdf(id: string) {
-    const orcamento = await this.orcamentoModel.findById(id).lean().exec();
+  async gerarOrcamentoPdf(id: string, empresaId?: string) {
+    const orcamento = await this.orcamentoModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec();
     if (!orcamento) throw new NotFoundException('Orcamento nao encontrado.');
 
     const [empresa, cliente, itens] = await Promise.all([
@@ -65,8 +65,8 @@ export class DocumentosService {
     return pdf.build();
   }
 
-  async gerarReciboPdf(id: string) {
-    const venda = await this.vendaModel.findById(id).lean().exec();
+  async gerarReciboPdf(id: string, empresaId?: string) {
+    const venda = await this.vendaModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec();
     if (!venda) throw new NotFoundException('Venda nao encontrada.');
 
     const [empresa, cliente, itens, pagamentos] = await Promise.all([
@@ -106,8 +106,8 @@ export class DocumentosService {
     return pdf.build();
   }
 
-  async gerarTermoPdf(id: string) {
-    const recebimento = await this.recebimentoModel.findById(id).lean().exec();
+  async gerarTermoPdf(id: string, empresaId?: string) {
+    const recebimento = await this.recebimentoModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec();
     if (!recebimento) throw new NotFoundException('Recebimento nao encontrado.');
 
     const [empresa, cliente, termo] = await Promise.all([
@@ -152,6 +152,10 @@ export class DocumentosService {
 
   private numeroDocumento(prefixo: string, id: unknown) {
     return `${prefixo}-${String(id).slice(-8).toUpperCase()}`;
+  }
+
+  private getEmpresaQuery(empresaId?: string, base: Record<string, unknown> = {}) {
+    return empresaId ? { ...base, empresaId } : base;
   }
 
   private formatDate(value: unknown) {

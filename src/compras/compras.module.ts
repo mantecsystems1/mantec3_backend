@@ -6,9 +6,11 @@ import { Fornecedor, FornecedorSchema } from './schemas/fornecedor.schema';
 import { PedidosCompra, PedidosCompraSchema } from './schemas/pedido-compra.schema';
 import { ItensPedidoCompra, ItensPedidoCompraSchema } from './schemas/itens-pedido-compra.schema';
 import { MovimentosEstoque, MovimentosEstoqueSchema } from '../estoque/schemas/movimento-estoque.schema';
+import { AuditoriaModule } from '../auditoria/auditoria.module';
 
 @Module({
   imports: [
+    AuditoriaModule,
     MongooseModule.forFeature([
       { name: Fornecedor.name, schema: FornecedorSchema },
       { name: PedidosCompra.name, schema: PedidosCompraSchema },

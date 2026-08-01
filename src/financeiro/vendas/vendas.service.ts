@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Venda, VendaDocument } from './schemas/venda.schema';
@@ -20,8 +20,10 @@ export class VendasService {
   ) {}
 
   // Venda CRUD
-  async create(createVendaDto: CreateVendaDto, actorId?: string) {
+  async create(createVendaDto: CreateVendaDto, actorId?: string, actorEmpresaId?: string) {
     const { itens = [], ...dto } = createVendaDto;
+    this.assertEmpresaPermitida(dto.empresaId, actorEmpresaId);
+
     if (!isVendaStatusFinanceiro(dto.statusFinanceiro)) {
       throw new BadRequestException(`Status financeiro invalido: ${dto.statusFinanceiro}`);
     }
@@ -48,7 +50,7 @@ export class VendasService {
           quantidade: Number(item.quantidade),
           valorUnitario: String(item.valorUnitario),
           totalItem: String(item.totalItem),
-        });
+        }, actorEmpresaId);
       }
     }
 
@@ -69,29 +71,33 @@ export class VendasService {
       });
     }
 
-    return this.findOne(createdVenda._id.toString());
+    return this.findOne(createdVenda._id.toString(), actorEmpresaId);
   }
 
-  async findAll() {
+  async findAll(empresaId?: string) {
     const vendas = await this.vendaModel
-      .find()
+      .find(this.getEmpresaQuery(empresaId))
       .populate('clienteId', 'nome cpfCnpj email')
       .lean()
       .exec();
     return Promise.all(vendas.map((venda) => this.attachItensVenda(venda)));
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, empresaId?: string) {
     const venda = await this.vendaModel
-      .findById(id)
+      .findOne(this.getEmpresaQuery(empresaId, { _id: id }))
       .populate('clienteId', 'nome cpfCnpj email')
       .lean()
       .exec();
     return venda ? this.attachItensVenda(venda) : null;
   }
 
-  async update(id: string, updateVendaDto: UpdateVendaDto, actorId?: string) {
+  async update(id: string, updateVendaDto: UpdateVendaDto, actorId?: string, actorEmpresaId?: string) {
     const { itens, ...dto } = updateVendaDto;
+    if (dto.empresaId) {
+      this.assertEmpresaPermitida(dto.empresaId, actorEmpresaId);
+    }
+
     const updateData: any = { ...dto };
     if (dto.subtotal) {
       updateData.subtotal = Types.Decimal128.fromString(dto.subtotal);
@@ -102,7 +108,10 @@ export class VendasService {
     if (dto.total) {
       updateData.total = Types.Decimal128.fromString(dto.total);
     }
-    await this.vendaModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
+    const updated = await this.vendaModel.findOneAndUpdate(this.getEmpresaQuery(actorEmpresaId, { _id: id }), updateData, { new: true }).exec();
+    if (!updated) {
+      throw new NotFoundException('Venda nao encontrada.');
+    }
 
     if (itens !== undefined) {
       await this.itensVendaModel.deleteMany({ vendaId: id });
@@ -113,15 +122,15 @@ export class VendasService {
             tipo: item.tipo,
             referenciaId: item.referenciaId,
             quantidade: Number(item.quantidade),
-            valorUnitario: String(item.valorUnitario),
-            totalItem: String(item.totalItem),
-          });
+          valorUnitario: String(item.valorUnitario),
+          totalItem: String(item.totalItem),
+          }, actorEmpresaId);
         }
       }
     }
 
     if (actorId) {
-      const venda = await this.vendaModel.findById(id).exec();
+      const venda = await this.vendaModel.findOne(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
       if (venda) {
         await this.auditoriaService.registrarEventoNegocio({
           empresaId: venda.empresaId,
@@ -137,11 +146,11 @@ export class VendasService {
       }
     }
 
-    return this.findOne(id);
+    return this.findOne(id, actorEmpresaId);
   }
 
-  async remove(id: string, actorId?: string) {
-    const removed = await this.vendaModel.findByIdAndDelete(id).exec();
+  async remove(id: string, actorId?: string, actorEmpresaId?: string) {
+    const removed = await this.vendaModel.findOneAndDelete(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
 
     if (actorId && removed) {
       await this.auditoriaService.registrarEventoNegocio({
@@ -161,7 +170,9 @@ export class VendasService {
   }
 
   // ItensVenda CRUD
-  createItem(createItensVendaDto: CreateItensVendaDto) {
+  async createItem(createItensVendaDto: CreateItensVendaDto, actorEmpresaId?: string) {
+    await this.assertVendaPertenceEmpresa(createItensVendaDto.vendaId, actorEmpresaId);
+
     const itemData: any = { ...createItensVendaDto };
     if (createItensVendaDto.valorUnitario) {
       itemData.valorUnitario = Types.Decimal128.fromString(createItensVendaDto.valorUnitario);
@@ -173,15 +184,33 @@ export class VendasService {
     return createdItem.save();
   }
 
-  findAllItems() {
-    return this.itensVendaModel.find().exec();
+  async findAllItems(empresaId?: string) {
+    if (!empresaId) {
+      return this.itensVendaModel.find().exec();
+    }
+
+    const vendaIds = await this.getVendaIdsEmpresa(empresaId);
+    return this.itensVendaModel.find({ vendaId: { $in: vendaIds } }).exec();
   }
 
-  findOneItem(id: string) {
-    return this.itensVendaModel.findById(id).exec();
+  async findOneItem(id: string, empresaId?: string) {
+    const item = await this.itensVendaModel.findById(id).exec();
+    if (!item) {
+      return null;
+    }
+
+    await this.assertVendaPertenceEmpresa(item.vendaId.toString(), empresaId);
+    return item;
   }
 
-  updateItem(id: string, updateItensVendaDto: UpdateItensVendaDto) {
+  async updateItem(id: string, updateItensVendaDto: UpdateItensVendaDto, actorEmpresaId?: string) {
+    const item = await this.itensVendaModel.findById(id).exec();
+    if (!item) {
+      throw new NotFoundException('Item de venda nao encontrado.');
+    }
+
+    await this.assertVendaPertenceEmpresa((updateItensVendaDto.vendaId ?? item.vendaId).toString(), actorEmpresaId);
+
     const updateData: any = { ...updateItensVendaDto };
     if (updateItensVendaDto.valorUnitario) {
       updateData.valorUnitario = Types.Decimal128.fromString(updateItensVendaDto.valorUnitario);
@@ -192,7 +221,13 @@ export class VendasService {
     return this.itensVendaModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
   }
 
-  removeItem(id: string) {
+  async removeItem(id: string, actorEmpresaId?: string) {
+    const item = await this.itensVendaModel.findById(id).exec();
+    if (!item) {
+      throw new NotFoundException('Item de venda nao encontrado.');
+    }
+
+    await this.assertVendaPertenceEmpresa(item.vendaId.toString(), actorEmpresaId);
     return this.itensVendaModel.findByIdAndDelete(id).exec();
   }
 
@@ -235,5 +270,31 @@ export class VendasService {
       ...venda,
       itens: populatedItens,
     };
+  }
+
+  private getEmpresaQuery(empresaId?: string, base: Record<string, unknown> = {}) {
+    return empresaId ? { ...base, empresaId } : base;
+  }
+
+  private assertEmpresaPermitida(empresaId?: string, actorEmpresaId?: string) {
+    if (actorEmpresaId && empresaId && String(empresaId) !== String(actorEmpresaId)) {
+      throw new BadRequestException('Empresa do registro nao corresponde a empresa do usuario autenticado.');
+    }
+  }
+
+  private async assertVendaPertenceEmpresa(vendaId: string, empresaId?: string) {
+    if (!empresaId) {
+      return;
+    }
+
+    const venda = await this.vendaModel.exists({ _id: vendaId, empresaId }).exec();
+    if (!venda) {
+      throw new NotFoundException('Venda nao encontrada.');
+    }
+  }
+
+  private async getVendaIdsEmpresa(empresaId: string) {
+    const vendas = await this.vendaModel.find({ empresaId }).select('_id').lean().exec();
+    return vendas.map((venda) => venda._id);
   }
 }

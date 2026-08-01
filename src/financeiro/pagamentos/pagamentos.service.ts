@@ -17,11 +17,8 @@ export class PagamentosService {
     private readonly auditoriaService: AuditoriaService,
   ) {}
 
-  async create(createPagamentoDto: CreatePagamentoDto, actorId?: string) {
-    const venda = await this.vendaModel.findById(createPagamentoDto.vendaId).exec();
-    if (!venda) {
-      throw new NotFoundException('Venda nao encontrada.');
-    }
+  async create(createPagamentoDto: CreatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
+    const venda = await this.getVendaDaEmpresa(createPagamentoDto.vendaId, actorEmpresaId);
 
     this.assertVendaPodeReceberPagamento(venda.statusFinanceiro);
 
@@ -52,25 +49,33 @@ export class PagamentosService {
     return saved;
   }
 
-  findAll() {
-    return this.pagamentoModel.find().exec();
+  async findAll(empresaId?: string) {
+    if (!empresaId) {
+      return this.pagamentoModel.find().exec();
+    }
+
+    const vendaIds = await this.getVendaIdsEmpresa(empresaId);
+    return this.pagamentoModel.find({ vendaId: { $in: vendaIds } }).exec();
   }
 
-  findOne(id: string) {
-    return this.pagamentoModel.findById(id).exec();
+  async findOne(id: string, empresaId?: string) {
+    const pagamento = await this.pagamentoModel.findById(id).exec();
+    if (!pagamento) {
+      return null;
+    }
+
+    await this.getVendaDaEmpresa(pagamento.vendaId.toString(), empresaId);
+    return pagamento;
   }
 
-  async update(id: string, updatePagamentoDto: UpdatePagamentoDto, actorId?: string) {
+  async update(id: string, updatePagamentoDto: UpdatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
     const pagamento = await this.pagamentoModel.findById(id).exec();
     if (!pagamento) {
       throw new NotFoundException('Pagamento nao encontrado.');
     }
 
     const vendaId = pagamento.vendaId.toString();
-    const venda = await this.vendaModel.findById(vendaId).exec();
-    if (!venda) {
-      throw new NotFoundException('Venda nao encontrada.');
-    }
+    const venda = await this.getVendaDaEmpresa(vendaId, actorEmpresaId);
 
     this.assertVendaPodeReceberPagamento(venda.statusFinanceiro, true);
 
@@ -100,14 +105,14 @@ export class PagamentosService {
     return updated;
   }
 
-  async remove(id: string, actorId?: string) {
+  async remove(id: string, actorId?: string, actorEmpresaId?: string) {
     const pagamento = await this.pagamentoModel.findById(id).exec();
     if (!pagamento) {
       throw new NotFoundException('Pagamento nao encontrado.');
     }
 
     const vendaId = pagamento.vendaId.toString();
-    const venda = await this.vendaModel.findById(vendaId).exec();
+    const venda = await this.getVendaDaEmpresa(vendaId, actorEmpresaId);
     const removed = await this.pagamentoModel.findByIdAndDelete(id).exec();
     await this.atualizarStatusFinanceiroVenda(vendaId);
 
@@ -148,6 +153,25 @@ export class PagamentosService {
     const statusFinanceiro = calcularStatusFinanceiroVenda(venda.total, totalPago);
 
     await this.vendaModel.findByIdAndUpdate(vendaId, { statusFinanceiro }, { new: true }).exec();
+  }
+
+  private async getVendaDaEmpresa(vendaId: string, empresaId?: string) {
+    const query: Record<string, unknown> = { _id: vendaId };
+    if (empresaId) {
+      query.empresaId = empresaId;
+    }
+
+    const venda = await this.vendaModel.findOne(query).exec();
+    if (!venda) {
+      throw new NotFoundException('Venda nao encontrada.');
+    }
+
+    return venda;
+  }
+
+  private async getVendaIdsEmpresa(empresaId: string) {
+    const vendas = await this.vendaModel.find({ empresaId }).select('_id').lean().exec();
+    return vendas.map((venda) => venda._id);
   }
 
   private async registrarAuditoriaPagamento(
