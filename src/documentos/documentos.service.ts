@@ -130,9 +130,21 @@ export class DocumentosService {
     pdf.addWrapped(termo?.texto || 'Cliente declara estar ciente das condicoes de recebimento do equipamento.');
     pdf.addSection('Assinatura');
     pdf.addKeyValue('Assinado', termo?.assinado ? 'Sim' : 'Nao');
-    pdf.addKeyValue('Metodo', termo?.metodoAssinatura || '-');
+    pdf.addKeyValue('Metodo', this.formatMetodoAssinatura(termo?.metodoAssinatura));
+    pdf.addKeyValue('Signatario', termo?.signatarioNome || cliente?.nome || '-');
+    pdf.addKeyValue('Documento do signatario', termo?.signatarioDocumento || cliente?.cpfCnpj || '-');
     pdf.addKeyValue('Data', this.formatDate(termo?.dataAssinatura));
-    pdf.addLine('Assinatura do cliente: ________________________________________________');
+    pdf.addKeyValue('IP', termo?.ipAssinatura || '-');
+    pdf.addKeyValue('Hash do termo', termo?.termoHashSha256 || '-');
+    pdf.addKeyValue('Hash da assinatura', termo?.assinaturaHashSha256 || '-');
+    if (termo?.observacoesAssinatura) {
+      pdf.addWrapped(termo.observacoesAssinatura);
+    }
+    pdf.addWrapped(
+      termo?.assinaturaImagemBase64
+        ? 'Assinatura grafica coletada no recebimento e armazenada no sistema com hash SHA-256.'
+        : 'Assinatura grafica nao coletada. Aceite registrado pelos metadados acima.',
+    );
     return pdf.build();
   }
 
@@ -160,6 +172,17 @@ export class DocumentosService {
 
   private formatDate(value: unknown) {
     return value ? new Date(String(value)).toLocaleDateString('pt-BR') : '-';
+  }
+
+  private formatMetodoAssinatura(value?: string) {
+    const labels: Record<string, string> = {
+      assinatura_tela: 'Assinatura na tela',
+      aceite_eletronico: 'Aceite eletronico',
+      digital: 'Digital',
+      manual: 'Manual',
+    };
+
+    return value ? labels[value] || value : '-';
   }
 
   private formatMoney(value: unknown) {
