@@ -533,4 +533,356 @@ describe('FinanceiroAdmService', () => {
     }, new Types.ObjectId().toString(), empresaId.toString())).rejects.toThrow(BadRequestException);
     expect(movimentoModel.create).not.toHaveBeenCalled();
   });
+
+  it('bloqueia titulo em competencia fechada', async () => {
+    const empresaId = new Types.ObjectId();
+    const categoriaId = new Types.ObjectId();
+    const { service, categoriaModel, tituloModel, fechamentoModel } = createService();
+
+    fechamentoModel.findOne.mockReturnValue(execResult({
+      _id: new Types.ObjectId(),
+      empresaId,
+      competencia: '2026-08',
+      status: FECHAMENTO_MENSAL_STATUS.FECHADO,
+    }));
+
+    await expect(service.createTitulo({
+      empresaId: empresaId.toString(),
+      tipo: TITULO_FINANCEIRO_TIPO.PAGAR,
+      categoriaId: categoriaId.toString(),
+      descricao: 'Internet',
+      valorTotal: '120.00',
+      dataCompetencia: '2026-08-01',
+      dataVencimento: '2026-08-10',
+    }, new Types.ObjectId().toString(), empresaId.toString())).rejects.toThrow(BadRequestException);
+
+    expect(categoriaModel.findOne).not.toHaveBeenCalled();
+    expect(tituloModel.create).not.toHaveBeenCalled();
+  });
+
+  it('bloqueia fechamento mensal ja fechado', async () => {
+    const empresaId = new Types.ObjectId();
+    const usuarioId = new Types.ObjectId().toString();
+    const { service, empresaModel, fechamentoModel } = createService();
+
+    fechamentoModel.findOne.mockReturnValue(execResult({
+      _id: new Types.ObjectId(),
+      empresaId,
+      competencia: '2026-08',
+      status: FECHAMENTO_MENSAL_STATUS.FECHADO,
+    }));
+
+    await expect(service.fecharMesFinanceiro({
+      competencia: '2026-08',
+    }, usuarioId, empresaId.toString())).rejects.toThrow(BadRequestException);
+
+    expect(empresaModel.findById).not.toHaveBeenCalled();
+    expect(fechamentoModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('reabre competencia mensal fechada com motivo e auditoria', async () => {
+    const empresaId = new Types.ObjectId();
+    const fechamentoId = new Types.ObjectId();
+    const usuarioId = new Types.ObjectId().toString();
+    const motivo = 'Ajuste de comprovante recebido apos fechamento';
+    const fechamento = {
+      _id: fechamentoId,
+      empresaId,
+      competencia: '2026-08',
+      periodoInicio: new Date('2026-08-01T00:00:00.000Z'),
+      periodoFim: new Date('2026-08-31T23:59:59.999Z'),
+      status: FECHAMENTO_MENSAL_STATUS.FECHADO,
+      snapshotHashSha256: 'hash',
+    };
+    const reaberto = {
+      ...fechamento,
+      status: FECHAMENTO_MENSAL_STATUS.REABERTO,
+      motivoReabertura: motivo,
+    };
+    const { service, fechamentoModel, auditoriaService } = createService();
+
+    fechamentoModel.findOne.mockReturnValue(execResult(fechamento));
+    fechamentoModel.findOneAndUpdate.mockReturnValue(execResult(reaberto));
+
+    const result = await service.reabrirMesFinanceiro({
+      competencia: '2026-08',
+      motivo,
+    }, usuarioId, empresaId.toString());
+
+    expect(fechamentoModel.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        empresaId: empresaId.toString(),
+        competencia: '2026-08',
+      }),
+      expect.objectContaining({
+        status: FECHAMENTO_MENSAL_STATUS.REABERTO,
+        motivoReabertura: motivo,
+        reabertoEm: expect.any(Date),
+      }),
+      { new: true },
+    );
+    expect(fechamentoModel.findOneAndUpdate.mock.calls[0][1].reabertoPor.toString()).toBe(usuarioId);
+    expect(auditoriaService.registrarEventoNegocio).toHaveBeenCalledWith(expect.objectContaining({
+      usuarioId,
+      dados: expect.objectContaining({
+        competencia: '2026-08',
+        motivo,
+      }),
+    }));
+    expect(result?.status).toBe(FECHAMENTO_MENSAL_STATUS.REABERTO);
+  });
+
+  it('registra entrada manual somando saldo da conta', async () => {
+    const empresaId = new Types.ObjectId();
+    const contaId = new Types.ObjectId();
+    const categoriaId = new Types.ObjectId();
+    const movimentoId = new Types.ObjectId();
+    const { service, contaModel, categoriaModel, movimentoModel } = createService();
+
+    contaModel.findOne.mockReturnValue(execResult({
+      _id: contaId,
+      empresaId,
+      saldoAtual: Types.Decimal128.fromString('300.00'),
+    }));
+    categoriaModel.findOne.mockReturnValue(execResult({
+      _id: categoriaId,
+      empresaId,
+      tipo: CATEGORIA_FINANCEIRA_TIPO.ENTRADA,
+      ativo: true,
+    }));
+    movimentoModel.create.mockResolvedValue({
+      _id: movimentoId,
+      empresaId,
+      contaId,
+      categoriaId,
+      tipo: MOVIMENTO_CAIXA_TIPO.ENTRADA,
+      descricao: 'Entrada em dinheiro',
+      valor: Types.Decimal128.fromString('50.00'),
+      formaPagamento: FORMA_PAGAMENTO_FINANCEIRO.DINHEIRO,
+      status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+    });
+    contaModel.findOneAndUpdate.mockReturnValue(execResult({
+      _id: contaId,
+      empresaId,
+      saldoAtual: Types.Decimal128.fromString('350.00'),
+    }));
+
+    const result = await service.createMovimento({
+      empresaId: empresaId.toString(),
+      contaId: contaId.toString(),
+      categoriaId: categoriaId.toString(),
+      tipo: MOVIMENTO_CAIXA_TIPO.ENTRADA,
+      descricao: 'Entrada em dinheiro',
+      valor: '50.00',
+      dataMovimento: '2026-08-05',
+      formaPagamento: FORMA_PAGAMENTO_FINANCEIRO.DINHEIRO,
+    }, new Types.ObjectId().toString(), empresaId.toString());
+
+    expect(contaModel.findOneAndUpdate.mock.calls[0][1].saldoAtual.toString()).toBe('350.00');
+    expect(result.status).toBe(MOVIMENTO_CAIXA_STATUS.CONFIRMADO);
+  });
+
+  it('estorna movimento ligado a titulo revertendo saldo e baixa', async () => {
+    const empresaId = new Types.ObjectId();
+    const contaId = new Types.ObjectId();
+    const categoriaId = new Types.ObjectId();
+    const tituloId = new Types.ObjectId();
+    const movimentoId = new Types.ObjectId();
+    const usuarioId = new Types.ObjectId().toString();
+    const movimento = {
+      _id: movimentoId,
+      empresaId,
+      contaId,
+      categoriaId,
+      tituloId,
+      tipo: MOVIMENTO_CAIXA_TIPO.ENTRADA,
+      descricao: 'Baixa - Venda',
+      valor: Types.Decimal128.fromString('100.00'),
+      dataMovimento: new Date('2026-08-05T12:00:00.000Z'),
+      formaPagamento: FORMA_PAGAMENTO_FINANCEIRO.PIX,
+      status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+    };
+    const titulo = {
+      _id: tituloId,
+      empresaId,
+      tipo: TITULO_FINANCEIRO_TIPO.RECEBER,
+      categoriaId,
+      descricao: 'Venda',
+      valorTotal: Types.Decimal128.fromString('100.00'),
+      valorPago: Types.Decimal128.fromString('100.00'),
+      status: TITULO_FINANCEIRO_STATUS.QUITADO,
+    };
+    const { service, contaModel, tituloModel, movimentoModel } = createService();
+
+    movimentoModel.findOne.mockReturnValue(execResult(movimento));
+    contaModel.findOne.mockReturnValue(execResult({
+      _id: contaId,
+      empresaId,
+      saldoAtual: Types.Decimal128.fromString('350.00'),
+    }));
+    contaModel.findOneAndUpdate.mockReturnValue(execResult({
+      _id: contaId,
+      empresaId,
+      saldoAtual: Types.Decimal128.fromString('250.00'),
+    }));
+    movimentoModel.findOneAndUpdate.mockReturnValue(execResult({
+      ...movimento,
+      status: MOVIMENTO_CAIXA_STATUS.ESTORNADO,
+      motivoEstorno: 'Pagamento cancelado',
+    }));
+    tituloModel.findOne.mockReturnValue(execResult(titulo));
+    tituloModel.findOneAndUpdate.mockReturnValue(execResult({
+      ...titulo,
+      valorPago: Types.Decimal128.fromString('0.00'),
+      status: TITULO_FINANCEIRO_STATUS.ABERTO,
+      dataPagamento: undefined,
+    }));
+
+    const result = await service.estornarMovimento(movimentoId.toString(), {
+      motivo: 'Pagamento cancelado',
+    }, usuarioId, empresaId.toString());
+
+    expect(contaModel.findOneAndUpdate.mock.calls[0][1].saldoAtual.toString()).toBe('250.00');
+    expect(movimentoModel.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: movimentoId.toString(),
+        empresaId: empresaId.toString(),
+      }),
+      expect.objectContaining({
+        status: MOVIMENTO_CAIXA_STATUS.ESTORNADO,
+        motivoEstorno: 'Pagamento cancelado',
+      }),
+      { new: true },
+    );
+    expect(tituloModel.findOneAndUpdate.mock.calls[0][1].$set.valorPago.toString()).toBe('0.00');
+    expect(tituloModel.findOneAndUpdate.mock.calls[0][1].$set.status).toBe(TITULO_FINANCEIRO_STATUS.ABERTO);
+    expect(tituloModel.findOneAndUpdate.mock.calls[0][1].$unset).toEqual({ dataPagamento: '' });
+    expect(result.status).toBe(MOVIMENTO_CAIXA_STATUS.ESTORNADO);
+  });
+
+  it('bloqueia estorno de movimento ja estornado', async () => {
+    const empresaId = new Types.ObjectId();
+    const movimentoId = new Types.ObjectId();
+    const { service, contaModel, movimentoModel } = createService();
+
+    movimentoModel.findOne.mockReturnValue(execResult({
+      _id: movimentoId,
+      empresaId,
+      tipo: MOVIMENTO_CAIXA_TIPO.SAIDA,
+      valor: Types.Decimal128.fromString('10.00'),
+      dataMovimento: new Date('2026-08-05T12:00:00.000Z'),
+      status: MOVIMENTO_CAIXA_STATUS.ESTORNADO,
+    }));
+
+    await expect(service.estornarMovimento(movimentoId.toString(), {
+      motivo: 'Duplicidade',
+    }, new Types.ObjectId().toString(), empresaId.toString())).rejects.toThrow(BadRequestException);
+
+    expect(contaModel.findOne).not.toHaveBeenCalled();
+    expect(movimentoModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('bloqueia estorno em competencia fechada', async () => {
+    const empresaId = new Types.ObjectId();
+    const contaId = new Types.ObjectId();
+    const movimentoId = new Types.ObjectId();
+    const { service, contaModel, movimentoModel, fechamentoModel } = createService();
+
+    movimentoModel.findOne.mockReturnValue(execResult({
+      _id: movimentoId,
+      empresaId,
+      contaId,
+      tipo: MOVIMENTO_CAIXA_TIPO.SAIDA,
+      valor: Types.Decimal128.fromString('10.00'),
+      dataMovimento: new Date('2026-08-05T12:00:00.000Z'),
+      status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+    }));
+    fechamentoModel.findOne.mockReturnValue(execResult({
+      _id: new Types.ObjectId(),
+      empresaId,
+      competencia: '2026-08',
+      status: FECHAMENTO_MENSAL_STATUS.FECHADO,
+    }));
+
+    await expect(service.estornarMovimento(movimentoId.toString(), {
+      motivo: 'Competencia encerrada',
+    }, new Types.ObjectId().toString(), empresaId.toString())).rejects.toThrow(BadRequestException);
+
+    expect(contaModel.findOne).not.toHaveBeenCalled();
+    expect(movimentoModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('monta relatorio por competencia com limites UTC e isolamento da empresa', async () => {
+    const empresaId = new Types.ObjectId().toString();
+    const { service, empresaModel, contaModel, categoriaModel, tituloModel, movimentoModel, recorrenciaModel, anexoModel } = createService();
+
+    empresaModel.findById.mockReturnValue(chainResult({ _id: empresaId, nomeFantasia: 'Mantec' }));
+    contaModel.find.mockReturnValue(chainResult([]));
+    categoriaModel.find.mockReturnValue(chainResult([]));
+    movimentoModel.find.mockReturnValue(chainResult([]));
+    tituloModel.find.mockReturnValue(chainResult([]));
+    recorrenciaModel.find.mockReturnValue(chainResult([]));
+    anexoModel.find.mockReturnValue(chainResult([]));
+
+    await service.getRelatorioMensalDados({ competencia: '2026-02' }, empresaId);
+
+    const inicio = new Date(Date.UTC(2026, 1, 1, 0, 0, 0, 0));
+    const fim = new Date(Date.UTC(2026, 2, 0, 23, 59, 59, 999));
+    expect(movimentoModel.find.mock.calls[0][0]).toEqual({
+      empresaId,
+      status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+      dataMovimento: { $gte: inicio, $lte: fim },
+    });
+    expect(tituloModel.find.mock.calls[0][0]).toEqual({
+      empresaId,
+      $or: [
+        { dataCompetencia: { $gte: inicio, $lte: fim } },
+        { dataVencimento: { $gte: inicio, $lte: fim } },
+        { dataPagamento: { $gte: inicio, $lte: fim } },
+      ],
+    });
+    expect(anexoModel.find.mock.calls[0][0]).toEqual({
+      empresaId,
+      ativo: true,
+      dataReferencia: { $gte: inicio, $lte: fim },
+    });
+  });
+
+  it('aplica isolamento por empresa nas consultas financeiras', async () => {
+    const empresaId = new Types.ObjectId().toString();
+    const { service, contaModel, categoriaModel, tituloModel, movimentoModel, recorrenciaModel } = createService();
+
+    contaModel.find.mockReturnValue(execResult([]));
+    categoriaModel.find.mockReturnValue(execResult([]));
+    tituloModel.find.mockReturnValue(chainResult([]));
+    movimentoModel.find.mockReturnValue(chainResult([]));
+    recorrenciaModel.find.mockReturnValue(chainResult([]));
+
+    await service.findAllContas(empresaId, { ativo: 'true' });
+    await service.findAllCategorias(empresaId, { tipo: CATEGORIA_FINANCEIRA_TIPO.SAIDA });
+    await service.findAllTitulos(empresaId, { status: TITULO_FINANCEIRO_STATUS.ABERTO });
+    await service.findAllMovimentos(empresaId, { status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO });
+    await service.findAllRecorrencias(empresaId, { status: 'ativa' });
+
+    expect(contaModel.find).toHaveBeenCalledWith({ empresaId, ativo: true });
+    expect(categoriaModel.find).toHaveBeenCalledWith({ empresaId, tipo: CATEGORIA_FINANCEIRA_TIPO.SAIDA });
+    expect(tituloModel.find).toHaveBeenCalledWith({ empresaId, status: TITULO_FINANCEIRO_STATUS.ABERTO });
+    expect(movimentoModel.find).toHaveBeenCalledWith({ empresaId, status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO });
+    expect(recorrenciaModel.find).toHaveBeenCalledWith({ empresaId, status: 'ativa' });
+  });
+
+  it('bloqueia criacao financeira para empresa diferente da autenticada', async () => {
+    const empresaId = new Types.ObjectId();
+    const outraEmpresaId = new Types.ObjectId();
+    const { service, contaModel } = createService();
+
+    await expect(service.createConta({
+      empresaId: outraEmpresaId.toString(),
+      nome: 'Conta de outra empresa',
+      tipo: 'caixa',
+    }, new Types.ObjectId().toString(), empresaId.toString())).rejects.toThrow(BadRequestException);
+
+    expect(contaModel.exists).not.toHaveBeenCalled();
+    expect(contaModel.create).not.toHaveBeenCalled();
+  });
 });
