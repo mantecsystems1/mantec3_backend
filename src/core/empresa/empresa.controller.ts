@@ -6,6 +6,7 @@ import { AuthTokenGuard } from '../../common/guards/auth-token.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RequireEvento } from '../../common/decorators/require-evento.decorator';
 import { EVENTOS_NEGOCIO } from '../../permissoes/matriz-permissoes';
+import { CurrentUser, type CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 
 @Controller('empresas')
 @UseGuards(AuthTokenGuard, PermissionGuard)
@@ -38,7 +39,7 @@ export class EmpresaController {
 
   @Delete(':id')
   @RequireEvento(EVENTOS_NEGOCIO.EMPRESA_GERENCIAR)
-  remove(@Param('id') id: string) {
-    return this.empresaService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.empresaService.remove(id, user?.id || user?._id || user?.sub);
   }
 }

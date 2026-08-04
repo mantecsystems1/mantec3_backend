@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { OsService } from './os.service';
 import { CreateOrdemServicoDto } from './dto/create-ordem-servico.dto';
 import { UpdateOrdemServicoDto } from './dto/update-ordem-servico.dto';
+import { RegistrarEntregaOsDto } from './dto/registrar-entrega-os.dto';
 import { CreateItensUtilizadosOSDto } from './dto/create-itens-utilizados-os.dto';
 import { UpdateItensUtilizadosOSDto } from './dto/update-itens-utilizados-os.dto';
 import { CreatePecaReservadaOSDto } from './dto/create-peca-reservada-os.dto';
@@ -10,6 +11,7 @@ import { PermissionGuard } from '../common/guards/permission.guard';
 import { RequireEvento, RequireEventoFromBody } from '../common/decorators/require-evento.decorator';
 import { EVENTOS_NEGOCIO } from '../permissoes/matriz-permissoes';
 import { OS_STATUS } from './state/os.states';
+import { CurrentUser, type CurrentUserPayload } from '../common/decorators/current-user.decorator';
 
 @Controller('ordens-servico')
 export class OsController {
@@ -128,6 +130,22 @@ export class OsController {
     return this.osService.update(id, { statusOperacional: OS_STATUS.CONCLUIDA });
   }
 
+  @Post(':id/entrega-assinatura')
+  @UseGuards(AuthTokenGuard, PermissionGuard)
+  @RequireEvento(EVENTOS_NEGOCIO.OS_FINALIZAR)
+  registrarEntrega(
+    @Param('id') id: string,
+    @Body() dto: RegistrarEntregaOsDto,
+    @Req() req: any,
+    @CurrentUser() user?: CurrentUserPayload,
+  ) {
+    return this.osService.registrarEntrega(id, {
+      ...dto,
+      ipAssinaturaEntrega: dto.ipAssinaturaEntrega || this.getClientIp(req),
+      userAgentAssinaturaEntrega: dto.userAgentAssinaturaEntrega || req?.headers?.['user-agent'],
+    }, user);
+  }
+
   @Post(':id/cancelar')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_CANCELAR)
@@ -153,5 +171,14 @@ export class OsController {
   @RequireEvento(EVENTOS_NEGOCIO.OS_CANCELAR)
   remove(@Param('id') id: string) {
     return this.osService.remove(id);
+  }
+
+  private getClientIp(req: any) {
+    const forwardedFor = req?.headers?.['x-forwarded-for'];
+    if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+      return forwardedFor.split(',')[0].trim();
+    }
+
+    return req?.ip || req?.socket?.remoteAddress;
   }
 }

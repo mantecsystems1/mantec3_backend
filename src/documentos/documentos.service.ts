@@ -10,6 +10,7 @@ import { Orcamento, OrcamentoDocument } from '../orcamentos/schemas/orcamento.sc
 import { ItensOrcamento, ItensOrcamentoDocument } from '../orcamentos/schemas/itens-orcamento.schema';
 import { RecebimentoEquipamento, RecebimentoEquipamentoDocument } from '../recebimento/recebimento-equipamento/recebimento-equipamento.schema';
 import { TermosRecebimento, TermosRecebimentoDocument } from '../recebimento/termos/termos-recebimento.schema';
+import { OrdemServico, OrdemServicoDocument } from '../ordens-servico/schemas/ordem-servico.schema';
 import { SimplePdfBuilder } from './simple-pdf';
 
 @Injectable()
@@ -24,6 +25,7 @@ export class DocumentosService {
     @InjectModel(Pagamento.name) private readonly pagamentoModel: Model<PagamentoDocument>,
     @InjectModel(RecebimentoEquipamento.name) private readonly recebimentoModel: Model<RecebimentoEquipamentoDocument>,
     @InjectModel(TermosRecebimento.name) private readonly termoModel: Model<TermosRecebimentoDocument>,
+    @InjectModel(OrdemServico.name) private readonly ordemServicoModel: Model<OrdemServicoDocument>,
   ) {}
 
   async gerarOrcamentoPdf(id: string, empresaId?: string) {
@@ -69,11 +71,14 @@ export class DocumentosService {
     const venda = await this.vendaModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec();
     if (!venda) throw new NotFoundException('Venda nao encontrada.');
 
-    const [empresa, cliente, itens, pagamentos] = await Promise.all([
+    const [empresa, cliente, itens, pagamentos, ordemServicoEntrega] = await Promise.all([
       this.empresaModel.findById(venda.empresaId).lean().exec(),
       this.clienteModel.findById(venda.clienteId).lean().exec(),
       this.itensVendaModel.find({ vendaId: venda._id }).lean().exec(),
       this.pagamentoModel.find({ vendaId: venda._id }).lean().exec(),
+      venda.origemTipo === 'ordem_servico' && venda.origemId
+        ? this.ordemServicoModel.findById(venda.origemId).lean().exec()
+        : Promise.resolve(null),
     ]);
 
     const pdf = this.criarBase('RECIBO', empresa, cliente);
@@ -103,6 +108,16 @@ export class DocumentosService {
     pdf.addKeyValue('Subtotal', this.formatMoney(venda.subtotal));
     pdf.addKeyValue('Descontos', this.formatMoney(venda.descontos));
     pdf.addKeyValue('Total', this.formatMoney(venda.total));
+    if (ordemServicoEntrega?.dataEntrega || ordemServicoEntrega?.assinaturaEntregaHashSha256) {
+      pdf.addSection('Entrega do equipamento');
+      pdf.addKeyValue('Entregue para', ordemServicoEntrega.entregueParaNome || cliente?.nome || '-');
+      pdf.addKeyValue('Documento', ordemServicoEntrega.entregueParaDocumento || cliente?.cpfCnpj || '-');
+      pdf.addKeyValue('Data', this.formatDate(ordemServicoEntrega.dataEntrega));
+      pdf.addKeyValue('Hash assinatura', ordemServicoEntrega.assinaturaEntregaHashSha256 || '-');
+      if (ordemServicoEntrega.observacoesEntrega) {
+        pdf.addWrapped(ordemServicoEntrega.observacoesEntrega);
+      }
+    }
     return pdf.build();
   }
 

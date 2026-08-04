@@ -31,6 +31,30 @@ export class OrdemServico {
 
   @Prop()
   dataConclusao: Date;
+
+  @Prop()
+  dataEntrega?: Date;
+
+  @Prop()
+  entregueParaNome?: string;
+
+  @Prop()
+  entregueParaDocumento?: string;
+
+  @Prop()
+  assinaturaEntregaImagemBase64?: string;
+
+  @Prop()
+  assinaturaEntregaHashSha256?: string;
+
+  @Prop()
+  ipAssinaturaEntrega?: string;
+
+  @Prop()
+  userAgentAssinaturaEntrega?: string;
+
+  @Prop()
+  observacoesEntrega?: string;
 }
 
 export const OrdemServicoSchema = SchemaFactory.createForClass(OrdemServico);

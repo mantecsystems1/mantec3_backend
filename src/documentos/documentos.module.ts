@@ -7,6 +7,7 @@ import { ItensVenda, ItensVendaSchema } from '../financeiro/vendas/schemas/itens
 import { Venda, VendaSchema } from '../financeiro/vendas/schemas/venda.schema';
 import { ItensOrcamento, ItensOrcamentoSchema } from '../orcamentos/schemas/itens-orcamento.schema';
 import { Orcamento, OrcamentoSchema } from '../orcamentos/schemas/orcamento.schema';
+import { OrdemServico, OrdemServicoSchema } from '../ordens-servico/schemas/ordem-servico.schema';
 import { RecebimentoEquipamento, RecebimentoEquipamentoSchema } from '../recebimento/recebimento-equipamento/recebimento-equipamento.schema';
 import { TermosRecebimento, TermosRecebimentoSchema } from '../recebimento/termos/termos-recebimento.schema';
 import { DocumentosController } from './documentos.controller';
@@ -22,6 +23,7 @@ import { DocumentosService } from './documentos.service';
       { name: Venda.name, schema: VendaSchema },
       { name: ItensVenda.name, schema: ItensVendaSchema },
       { name: Pagamento.name, schema: PagamentoSchema },
+      { name: OrdemServico.name, schema: OrdemServicoSchema },
       { name: RecebimentoEquipamento.name, schema: RecebimentoEquipamentoSchema },
       { name: TermosRecebimento.name, schema: TermosRecebimentoSchema },
     ]),

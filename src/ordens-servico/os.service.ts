@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { createHash } from 'crypto';
 import { Model, Types } from 'mongoose';
 import { OrdemServico, OrdemServicoDocument } from './schemas/ordem-servico.schema';
 import { ItensUtilizadosOS, ItensUtilizadosOSDocument } from './schemas/itens-utilizados-os.schema';
 import { PecasReservadasOS, PecasReservadasOSDocument } from './schemas/pecas-reservadas-os.schema';
 import { CreateOrdemServicoDto } from './dto/create-ordem-servico.dto';
 import { UpdateOrdemServicoDto } from './dto/update-ordem-servico.dto';
+import { RegistrarEntregaOsDto } from './dto/registrar-entrega-os.dto';
 import { CreateItensUtilizadosOSDto } from './dto/create-itens-utilizados-os.dto';
 import { UpdateItensUtilizadosOSDto } from './dto/update-itens-utilizados-os.dto';
 import { CreatePecaReservadaOSDto } from './dto/create-peca-reservada-os.dto';
@@ -15,6 +17,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 import { EstoqueService } from '../estoque/estoque.service';
 import { MOVIMENTO_ESTOQUE_ORIGEM, MOVIMENTO_ESTOQUE_TIPO } from '../estoque/movimento-estoque.types';
+import type { CurrentUserPayload } from '../common/decorators/current-user.decorator';
 
 @Injectable()
 export class OsService {
@@ -127,6 +130,54 @@ export class OsService {
 
     assertCanEditOs(ordemServico.statusOperacional);
     return this.ordemServicoModel.findByIdAndDelete(id).exec();
+  }
+
+  async registrarEntrega(id: string, dto: RegistrarEntregaOsDto, user?: CurrentUserPayload) {
+    const ordemServico = await this.ordemServicoModel.findById(id).exec();
+    if (!ordemServico) {
+      throw new NotFoundException('Ordem de servico nao encontrada.');
+    }
+
+    if (ordemServico.statusOperacional !== OS_STATUS.CONCLUIDA) {
+      throw new BadRequestException('A assinatura de entrega so pode ser registrada em OS concluida.');
+    }
+
+    const assinaturaEntregaHashSha256 = createHash('sha256')
+      .update(dto.assinaturaImagemBase64, 'utf8')
+      .digest('hex');
+
+    const updated = await this.ordemServicoModel.findByIdAndUpdate(
+      id,
+      {
+        dataEntrega: new Date(),
+        entregueParaNome: dto.entregueParaNome,
+        entregueParaDocumento: dto.entregueParaDocumento,
+        assinaturaEntregaImagemBase64: dto.assinaturaImagemBase64,
+        assinaturaEntregaHashSha256,
+        ipAssinaturaEntrega: dto.ipAssinaturaEntrega,
+        userAgentAssinaturaEntrega: dto.userAgentAssinaturaEntrega,
+        observacoesEntrega: dto.observacoesEntrega,
+      },
+      { new: true },
+    ).exec();
+
+    const usuarioId = user?.id || user?._id || user?.sub || ordemServico.tecnicoId?.toString();
+    await this.auditoriaService.registrarEventoNegocio({
+      empresaId: ordemServico.empresaId,
+      usuarioId,
+      tipoEvento: AUDITORIA_EVENTOS.OS_ENTREGA_ASSINADA,
+      entidade: AUDITORIA_ENTIDADES.ORDEM_SERVICO,
+      entidadeId: ordemServico._id as Types.ObjectId,
+      dados: {
+        clienteId: ordemServico.clienteId?.toString(),
+        entregueParaNome: dto.entregueParaNome,
+        entregueParaDocumento: dto.entregueParaDocumento,
+        dataEntrega: new Date().toISOString(),
+        assinaturaEntregaHashSha256,
+      },
+    });
+
+    return updated;
   }
 
   async createItem(createItensUtilizadosOSDto: CreateItensUtilizadosOSDto, options: { skipSaldoCheck?: boolean } = {}) {

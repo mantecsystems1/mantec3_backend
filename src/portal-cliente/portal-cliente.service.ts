@@ -391,6 +391,7 @@ export class PortalClienteService {
       AUDITORIA_EVENTOS.ORCAMENTO_REPROVADO,
       AUDITORIA_EVENTOS.OS_CRIADA,
       AUDITORIA_EVENTOS.OS_STATUS_ALTERADO,
+      AUDITORIA_EVENTOS.OS_ENTREGA_ASSINADA,
       AUDITORIA_EVENTOS.VENDA_GERADA,
       AUDITORIA_EVENTOS.PAGAMENTO_REGISTRADO,
       AUDITORIA_EVENTOS.GARANTIA_ABERTA,
@@ -533,6 +534,7 @@ export class PortalClienteService {
       [AUDITORIA_EVENTOS.ORCAMENTO_REPROVADO]: 'Orcamento reprovado',
       [AUDITORIA_EVENTOS.OS_CRIADA]: 'Servico iniciado',
       [AUDITORIA_EVENTOS.OS_STATUS_ALTERADO]: 'Status do servico atualizado',
+      [AUDITORIA_EVENTOS.OS_ENTREGA_ASSINADA]: 'Equipamento entregue',
       [AUDITORIA_EVENTOS.VENDA_GERADA]: 'Venda gerada',
       [AUDITORIA_EVENTOS.PAGAMENTO_REGISTRADO]: 'Pagamento registrado',
       [AUDITORIA_EVENTOS.GARANTIA_ABERTA]: 'Garantia aberta',
@@ -546,6 +548,10 @@ export class PortalClienteService {
   private getTimelineDescricao(tipoEvento: string, dados?: Record<string, unknown>) {
     if (tipoEvento === AUDITORIA_EVENTOS.OS_STATUS_ALTERADO) {
       return `Novo status: ${this.getStatusOsPublico(String(dados?.statusAtual || '-'))}.`;
+    }
+
+    if (tipoEvento === AUDITORIA_EVENTOS.OS_ENTREGA_ASSINADA) {
+      return 'Retirada registrada com assinatura do responsavel.';
     }
 
     if (tipoEvento === AUDITORIA_EVENTOS.RECEBIMENTO_ATUALIZADO) {

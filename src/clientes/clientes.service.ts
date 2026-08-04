@@ -10,7 +10,8 @@ import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-e
 type ClienteAuditavelEvento =
   | typeof AUDITORIA_EVENTOS.CLIENTE_CRIADO
   | typeof AUDITORIA_EVENTOS.CLIENTE_ATUALIZADO
-  | typeof AUDITORIA_EVENTOS.CLIENTE_REMOVIDO;
+  | typeof AUDITORIA_EVENTOS.CLIENTE_REMOVIDO
+  | typeof AUDITORIA_EVENTOS.CLIENTE_DESATIVADO;
 
 @Injectable()
 export class ClientesService {
@@ -60,12 +61,13 @@ export class ClientesService {
   }
 
   async remove(id: string, actorId?: string) {
-    const removed = await this.clienteModel.findByIdAndDelete(id).exec();
+    const removed = await this.clienteModel.findByIdAndUpdate(id, { ativo: false }, { new: true }).exec();
 
     if (actorId && removed) {
-      await this.registrarAuditoriaCliente(removed, actorId, AUDITORIA_EVENTOS.CLIENTE_REMOVIDO, {
+      await this.registrarAuditoriaCliente(removed, actorId, AUDITORIA_EVENTOS.CLIENTE_DESATIVADO, {
         nome: removed.nome,
         cpfCnpj: removed.cpfCnpj,
+        ativo: false,
       });
     }
 
