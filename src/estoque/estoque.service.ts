@@ -5,7 +5,13 @@ import { MovimentosEstoque, MovimentosEstoqueDocument } from './schemas/moviment
 import { Produto, ProdutoDocument } from '../catalogo/produtos/schemas/produto.schema';
 import { CreateMovimentoEstoqueDto } from './dto/create-movimento-estoque.dto';
 import { UpdateMovimentoEstoqueDto } from './dto/update-movimento-estoque.dto';
-import { calcularDisponibilidadeMovimentos, calcularSaldoMovimentos, isMovimentoEstoqueTipo } from './movimento-estoque.types';
+import {
+  MOVIMENTO_ESTOQUE_TIPO,
+  calcularDisponibilidadeMovimentos,
+  calcularSaldoMovimentos,
+  getMovimentoEstoqueSinal,
+  isMovimentoEstoqueTipo,
+} from './movimento-estoque.types';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 
@@ -28,6 +34,7 @@ export class EstoqueService {
 
   async create(createMovimentoEstoqueDto: CreateMovimentoEstoqueDto, actorId?: string) {
     this.assertMovimentoValido(createMovimentoEstoqueDto.tipo, createMovimentoEstoqueDto.quantidade);
+    await this.assertMovimentoNaoNegativaEstoque(createMovimentoEstoqueDto);
 
     const createdMovimento = new this.movimentosEstoqueModel(createMovimentoEstoqueDto);
     const saved = await createdMovimento.save();
@@ -60,6 +67,16 @@ export class EstoqueService {
         updateMovimentoEstoqueDto.quantidade ?? 1,
         Boolean(updateMovimentoEstoqueDto.tipo),
       );
+    }
+
+    const current = await this.movimentosEstoqueModel.findById(id).exec();
+    if (current) {
+      const nextMovimento = {
+        produtoId: updateMovimentoEstoqueDto.produtoId ?? current.produtoId?.toString(),
+        tipo: updateMovimentoEstoqueDto.tipo ?? current.tipo,
+        quantidade: updateMovimentoEstoqueDto.quantidade ?? current.quantidade,
+      };
+      await this.assertMovimentoNaoNegativaEstoque(nextMovimento, current);
     }
 
     const updated = await this.movimentosEstoqueModel.findByIdAndUpdate(id, updateMovimentoEstoqueDto, { new: true }).exec();
@@ -180,6 +197,41 @@ export class EstoqueService {
     if (!Number.isFinite(Number(quantidade)) || Number(quantidade) <= 0) {
       throw new BadRequestException('Quantidade do movimento de estoque deve ser maior que zero.');
     }
+  }
+
+  private async assertMovimentoNaoNegativaEstoque(
+    movimento: Pick<CreateMovimentoEstoqueDto, 'produtoId' | 'tipo' | 'quantidade'>,
+    movimentoAtual?: MovimentosEstoqueDocument,
+  ) {
+    const tipo = movimento.tipo;
+    const quantidade = Number(movimento.quantidade || 0);
+
+    if (!this.deveValidarSaldo(tipo)) {
+      return;
+    }
+
+    const produtoId = this.getObjectIdString(movimento.produtoId);
+    if (!produtoId) {
+      return;
+    }
+
+    const movimentos = await this.movimentosEstoqueModel.find({ produtoId }).exec();
+    const movimentosConsiderados = movimentoAtual
+      ? movimentos.filter((item) => String(item._id) !== String(movimentoAtual._id))
+      : movimentos;
+    const { disponivel } = calcularDisponibilidadeMovimentos(movimentosConsiderados);
+
+    if (disponivel < quantidade) {
+      throw new BadRequestException(`Saldo insuficiente para movimentar estoque. Disponivel: ${disponivel}. Solicitado: ${quantidade}.`);
+    }
+  }
+
+  private deveValidarSaldo(tipo: string) {
+    if (tipo === MOVIMENTO_ESTOQUE_TIPO.ESTORNO_RESERVA) {
+      return false;
+    }
+
+    return getMovimentoEstoqueSinal(tipo) < 0;
   }
 
   private getObjectIdString(value: unknown) {

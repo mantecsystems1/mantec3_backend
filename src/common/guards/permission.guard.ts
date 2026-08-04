@@ -42,7 +42,7 @@ export class PermissionGuard implements CanActivate {
 
     const allowed = perfis.some((perfil) => perfilPodeExecutarEvento(perfil, requiredEvento));
     if (!allowed) {
-      throw new ForbiddenException(`Perfil sem permissao para executar evento: ${requiredEvento}`);
+      throw new ForbiddenException('Seu perfil nao possui permissao para executar esta acao.');
     }
 
     return true;

@@ -37,6 +37,19 @@ export class UsuariosService {
     return this.usuarioModel.find().populate('empresaId', 'nomeFantasia razaoSocial').exec();
   }
 
+  findTecnicos(empresaId?: string) {
+    const query: Record<string, unknown> = {
+      ativo: true,
+      perfil: { $in: ['tecnico', 'tecnico_assistencia'] },
+    };
+
+    if (empresaId) {
+      query.empresaId = empresaId;
+    }
+
+    return this.usuarioModel.find(query).select('nome email perfil empresaId ativo').exec();
+  }
+
   findOne(id: string) {
     return this.usuarioModel.findById(id).populate('empresaId', 'nomeFantasia razaoSocial').exec();
   }

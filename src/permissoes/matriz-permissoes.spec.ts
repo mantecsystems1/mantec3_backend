@@ -15,6 +15,8 @@ describe('matriz de permissoes por evento', () => {
 
   it('permite financeiro registrar pagamento, mas nao consumir peca em OS', () => {
     expect(perfilPodeExecutarEvento('financeiro', EVENTOS_NEGOCIO.PAGAMENTO_REGISTRAR)).toBe(true);
+    expect(perfilPodeExecutarEvento('caixa', EVENTOS_NEGOCIO.PAGAMENTO_REGISTRAR)).toBe(true);
+    expect(perfilPodeExecutarEvento('caixa_financeiro', EVENTOS_NEGOCIO.VENDA_GERAR)).toBe(true);
     expect(perfilPodeExecutarEvento('financeiro', EVENTOS_NEGOCIO.PAGAMENTO_CONSULTAR)).toBe(true);
     expect(perfilPodeExecutarEvento('financeiro', EVENTOS_NEGOCIO.VENDA_CONSULTAR)).toBe(true);
     expect(perfilPodeExecutarEvento('financeiro', EVENTOS_NEGOCIO.FORNECEDOR_CONSULTAR)).toBe(true);
@@ -29,6 +31,7 @@ describe('matriz de permissoes por evento', () => {
     expect(perfilPodeExecutarEvento('financeiro', EVENTOS_NEGOCIO.PROLABORE_REGISTRAR)).toBe(true);
     expect(perfilPodeExecutarEvento('financeiro', EVENTOS_NEGOCIO.FECHAMENTO_MENSAL_GERENCIAR)).toBe(true);
     expect(perfilPodeExecutarEvento('financeiro', EVENTOS_NEGOCIO.OS_CONSUMIR_PECA)).toBe(false);
+    expect(perfilPodeExecutarEvento('caixa', EVENTOS_NEGOCIO.OS_CONSUMIR_PECA)).toBe(false);
   });
 
   it('permite estoquista consultar compras e fornecedores, mas nao financeiro administrativo', () => {
@@ -50,6 +53,14 @@ describe('matriz de permissoes por evento', () => {
     expect(perfilPodeExecutarEvento('administrador', EVENTOS_NEGOCIO.AUDITORIA_GERENCIAR)).toBe(true);
     expect(perfilPodeExecutarEvento('gerente', EVENTOS_NEGOCIO.AUDITORIA_CONSULTAR)).toBe(true);
     expect(perfilPodeExecutarEvento('gerente', EVENTOS_NEGOCIO.AUDITORIA_GERENCIAR)).toBe(false);
+  });
+
+  it('protege usuarios e empresas por perfil administrativo', () => {
+    expect(perfilPodeExecutarEvento('administrador', EVENTOS_NEGOCIO.USUARIO_GERENCIAR)).toBe(true);
+    expect(perfilPodeExecutarEvento('gerente', EVENTOS_NEGOCIO.USUARIO_CONSULTAR)).toBe(true);
+    expect(perfilPodeExecutarEvento('gerente', EVENTOS_NEGOCIO.USUARIO_GERENCIAR)).toBe(false);
+    expect(perfilPodeExecutarEvento('atendente', EVENTOS_NEGOCIO.USUARIO_CONSULTAR)).toBe(false);
+    expect(perfilPodeExecutarEvento('tecnico', EVENTOS_NEGOCIO.EMPRESA_GERENCIAR)).toBe(false);
   });
 
   it('nega perfil desconhecido', () => {

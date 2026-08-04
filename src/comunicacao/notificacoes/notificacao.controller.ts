@@ -44,7 +44,7 @@ export class NotificacaoController {
     @Body() updateNotificacaoDto: UpdateNotificacaoDto,
     @CurrentUser() user?: CurrentUserPayload,
   ) {
-    return this.notificacaoService.update(id, updateNotificacaoDto, user?.empresaId);
+    return this.notificacaoService.update(id, updateNotificacaoDto, user);
   }
 
   @Delete(':id')

@@ -33,7 +33,8 @@ export class PagamentosService {
     const totalVenda = decimalToNumber(venda.total);
 
     if (totalJaPago + valorPagamento > totalVenda + 0.00001) {
-      throw new BadRequestException('Pagamento excede o total da venda.');
+      const restante = Math.max(totalVenda - totalJaPago, 0);
+      throw new BadRequestException(`Pagamento maior que o saldo restante da venda. Restante: R$ ${restante.toFixed(2)}. Informado: R$ ${valorPagamento.toFixed(2)}.`);
     }
 
     const pagamentoData: Record<string, unknown> = { ...createPagamentoDto };
@@ -92,7 +93,8 @@ export class PagamentosService {
       const totalPagoSemPagamentoAtual = await this.getTotalPagoVenda(vendaId, id);
       const totalVenda = decimalToNumber(venda.total);
       if (totalPagoSemPagamentoAtual + novoValor > totalVenda + 0.00001) {
-        throw new BadRequestException('Pagamento excede o total da venda.');
+        const restante = Math.max(totalVenda - totalPagoSemPagamentoAtual, 0);
+        throw new BadRequestException(`Pagamento maior que o saldo restante da venda. Restante: R$ ${restante.toFixed(2)}. Informado: R$ ${novoValor.toFixed(2)}.`);
       }
 
       updateData.valor = Types.Decimal128.fromString(updatePagamentoDto.valor);

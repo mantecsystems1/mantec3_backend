@@ -33,8 +33,10 @@ export class GarantiasService {
   ) {}
 
   async createGarantia(createGarantiaDto: CreateGarantiaDto, actorId?: string) {
-    if (!isGarantiaStatus(createGarantiaDto.status)) {
-      throw new BadRequestException(`Status de garantia invalido: ${createGarantiaDto.status}`);
+    const status = createGarantiaDto.status || GARANTIA_STATUS.ABERTA;
+
+    if (!isGarantiaStatus(status)) {
+      throw new BadRequestException(`Status de garantia invalido: ${status}`);
     }
 
     const fornecedorId = createGarantiaDto.fornecedorId || await this.inferFornecedorPorProduto(
@@ -46,7 +48,7 @@ export class GarantiasService {
       throw new BadRequestException('Fornecedor nao informado e nao foi possivel inferir pelo historico de compras do produto.');
     }
 
-    const garantiaData = { ...createGarantiaDto, fornecedorId };
+    const garantiaData = { ...createGarantiaDto, fornecedorId, status };
     const createdGarantia = new this.garantiaModel(garantiaData);
     const saved = await createdGarantia.save();
 

@@ -91,7 +91,7 @@ export class PortalClienteService {
         .exec(),
       this.ordemServicoModel
         .find({ clienteId: clienteObjectId, empresaId: empresaObjectId })
-        .populate('recebimentoEquipamentoId', 'tipoEquipamento marca modelo imeiOuSerial')
+        .populate('recebimentoEquipamentoId', 'tipoEquipamento marca modelo imeiOuSerial observacoesGerais')
         .sort({ criadoEm: -1 })
         .lean()
         .exec(),
@@ -137,18 +137,31 @@ export class PortalClienteService {
       ordemServicoIds,
       vendaIds,
     });
+    const timelineCompleta = this.mergeTimelinePublica(
+      timeline,
+      this.getTimelineSintetica({ orcamentos, ordensServico, vendas, garantias }),
+    );
 
     return {
       empresa: {
         nome: empresa.nomeFantasia || empresa.razaoSocial,
         email: empresa.email,
         telefone: empresa.telefone,
-        endereco: empresa.endereco,
-        horariosFuncionamento: [
-          'Segunda a sexta: horario comercial',
-          'Sabado: consulte atendimento',
-        ],
-        formasPagamento: ['Pix', 'Cartao', 'Dinheiro'],
+        endereco: this.formatEndereco(empresa.endereco),
+        horariosFuncionamento: this.getConfigList('PORTAL_HORARIOS_FUNCIONAMENTO', [
+          'Segunda a sexta: 09:00 as 18:00',
+          'Sabado: 09:00 as 13:00',
+        ]),
+        formasPagamento: this.getConfigList('PORTAL_FORMAS_PAGAMENTO', ['Pix', 'Dinheiro', 'Cartao de debito', 'Cartao de credito']),
+        orientacoesAtendimento: this.getConfigList('PORTAL_ORIENTACOES_ATENDIMENTO', [
+          'Retire o equipamento somente apos confirmacao de pronto.',
+          'Apresente documento ou comprovante do atendimento na retirada.',
+          'Confira o equipamento no balcao antes de finalizar a entrega.',
+        ]),
+        politicaGarantia: this.getConfigList('PORTAL_POLITICA_GARANTIA', [
+          'Garantia valida para o servico e pecas informados no recibo.',
+          'Danos por queda, liquido ou mau uso nao sao cobertos.',
+        ]),
       },
       cliente: {
         id: String(cliente._id),
@@ -176,6 +189,8 @@ export class PortalClienteService {
       ordensServico: ordensServico.map((ordem) => ({
         ...this.toPlain(ordem),
         id: String(ordem._id),
+        equipamento: this.getEquipamentoDescricao(ordem.recebimentoEquipamentoId),
+        problemaRelatado: this.getRecebimentoObservacao(ordem.recebimentoEquipamentoId),
       })),
       vendas: vendas.map((venda) => ({
         ...this.toPlain(venda),
@@ -195,8 +210,11 @@ export class PortalClienteService {
         ...this.toPlain(garantia),
         id: String(garantia._id),
         produto: this.getRefName(garantia.produtoId),
+        defeitoRelatado: garantia.motivo,
+        dataAbertura: garantia.criadoEm,
+        dataLimite: this.getGarantiaDataLimite(garantia.criadoEm),
       })),
-      timeline,
+      timeline: timelineCompleta,
     };
   }
 
@@ -364,7 +382,10 @@ export class PortalClienteService {
   }) {
     const eventosPublicos = [
       AUDITORIA_EVENTOS.RECEBIMENTO_CRIADO,
+      AUDITORIA_EVENTOS.RECEBIMENTO_ATUALIZADO,
       AUDITORIA_EVENTOS.TERMO_GERADO,
+      AUDITORIA_EVENTOS.COMUNICACAO_PREPARADA,
+      AUDITORIA_EVENTOS.COMUNICACAO_ATUALIZADA,
       AUDITORIA_EVENTOS.ORCAMENTO_ENVIADO,
       AUDITORIA_EVENTOS.ORCAMENTO_APROVADO,
       AUDITORIA_EVENTOS.ORCAMENTO_REPROVADO,
@@ -385,6 +406,7 @@ export class PortalClienteService {
       { entidade: AUDITORIA_ENTIDADES.PAGAMENTO },
       { entidade: AUDITORIA_ENTIDADES.GARANTIA },
       { entidade: AUDITORIA_ENTIDADES.RECEBIMENTO },
+      { entidade: AUDITORIA_ENTIDADES.NOTIFICACAO },
     ];
 
     const query: Record<string, unknown> = {
@@ -413,6 +435,72 @@ export class PortalClienteService {
       }));
   }
 
+  private getTimelineSintetica({
+    orcamentos,
+    ordensServico,
+    vendas,
+    garantias,
+  }: {
+    orcamentos: any[];
+    ordensServico: any[];
+    vendas: any[];
+    garantias: any[];
+  }) {
+    const itens = [
+      ...orcamentos.map((orcamento) => ({
+        id: `orcamento-${String(orcamento._id)}`,
+        data: orcamento.criadoEm || orcamento.validade,
+        tipoEvento: 'PORTAL_ORCAMENTO',
+        titulo: orcamento.status === ORCAMENTO_STATUS.ENVIADO ? 'Orcamento aguardando resposta' : this.getStatusOrcamentoTitulo(orcamento.status),
+        descricao: `Total: ${this.formatMoney(this.decimalToNumber(orcamento.total))}.`,
+        entidade: AUDITORIA_ENTIDADES.ORCAMENTO,
+        entidadeId: String(orcamento._id),
+      })),
+      ...ordensServico.map((ordem) => ({
+        id: `os-${String(ordem._id)}`,
+        data: ordem.dataEntrada || ordem.criadoEm,
+        tipoEvento: 'PORTAL_OS',
+        titulo: 'Servico em acompanhamento',
+        descricao: `Status atual: ${this.getStatusOsPublico(ordem.statusOperacional)}.`,
+        entidade: AUDITORIA_ENTIDADES.ORDEM_SERVICO,
+        entidadeId: String(ordem._id),
+      })),
+      ...vendas.map((venda) => ({
+        id: `venda-${String(venda._id)}`,
+        data: venda.criadoEm,
+        tipoEvento: 'PORTAL_VENDA',
+        titulo: 'Recibo disponivel',
+        descricao: `Total: ${this.formatMoney(this.decimalToNumber(venda.total))}.`,
+        entidade: AUDITORIA_ENTIDADES.VENDA,
+        entidadeId: String(venda._id),
+      })),
+      ...garantias.map((garantia) => ({
+        id: `garantia-${String(garantia._id)}`,
+        data: garantia.criadoEm,
+        tipoEvento: 'PORTAL_GARANTIA',
+        titulo: 'Garantia registrada',
+        descricao: `Status atual: ${this.getStatusGarantiaPublico(garantia.status)}.`,
+        entidade: AUDITORIA_ENTIDADES.GARANTIA,
+        entidadeId: String(garantia._id),
+      })),
+    ];
+
+    return itens.filter((item) => item.data);
+  }
+
+  private mergeTimelinePublica(auditoria: any[], sintetica: any[]) {
+    const seen = new Set<string>();
+    return [...auditoria, ...sintetica]
+      .filter((item) => {
+        const key = `${item.entidade}:${item.entidadeId}:${item.titulo}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => new Date(b.data || 0).getTime() - new Date(a.data || 0).getTime())
+      .slice(0, 40);
+  }
+
   private logPertenceAoCliente(
     log: { entidade?: string; entidadeId?: unknown; dados?: Record<string, unknown> },
     clienteId: Types.ObjectId,
@@ -436,7 +524,10 @@ export class PortalClienteService {
   private getTimelineTitulo(tipoEvento: string) {
     const labels: Record<string, string> = {
       [AUDITORIA_EVENTOS.RECEBIMENTO_CRIADO]: 'Equipamento recebido',
+      [AUDITORIA_EVENTOS.RECEBIMENTO_ATUALIZADO]: 'Entrada atualizada',
       [AUDITORIA_EVENTOS.TERMO_GERADO]: 'Termo gerado',
+      [AUDITORIA_EVENTOS.COMUNICACAO_PREPARADA]: 'Comunicacao registrada',
+      [AUDITORIA_EVENTOS.COMUNICACAO_ATUALIZADA]: 'Comunicacao atualizada',
       [AUDITORIA_EVENTOS.ORCAMENTO_ENVIADO]: 'Orcamento enviado',
       [AUDITORIA_EVENTOS.ORCAMENTO_APROVADO]: 'Orcamento aprovado',
       [AUDITORIA_EVENTOS.ORCAMENTO_REPROVADO]: 'Orcamento reprovado',
@@ -454,7 +545,27 @@ export class PortalClienteService {
 
   private getTimelineDescricao(tipoEvento: string, dados?: Record<string, unknown>) {
     if (tipoEvento === AUDITORIA_EVENTOS.OS_STATUS_ALTERADO) {
-      return `Novo status: ${dados?.statusAtual || '-'}`;
+      return `Novo status: ${this.getStatusOsPublico(String(dados?.statusAtual || '-'))}.`;
+    }
+
+    if (tipoEvento === AUDITORIA_EVENTOS.RECEBIMENTO_ATUALIZADO) {
+      return `Entrada atualizada${dados?.status ? ` com status ${String(dados.status)}` : ''}.`;
+    }
+
+    if (tipoEvento === AUDITORIA_EVENTOS.TERMO_GERADO) {
+      return dados?.assinado ? 'Termo assinado e vinculado ao atendimento.' : 'Termo vinculado ao atendimento.';
+    }
+
+    if (
+      tipoEvento === AUDITORIA_EVENTOS.COMUNICACAO_PREPARADA ||
+      tipoEvento === AUDITORIA_EVENTOS.COMUNICACAO_ATUALIZADA
+    ) {
+      const tipo = dados?.tipo ? String(dados.tipo) : 'mensagem';
+      return `${tipo} registrado para acompanhamento do atendimento.`;
+    }
+
+    if (tipoEvento === AUDITORIA_EVENTOS.GARANTIA_STATUS_ALTERADO) {
+      return `Novo status: ${this.getStatusGarantiaPublico(String(dados?.statusAtual || dados?.status || '-'))}.`;
     }
 
     if (tipoEvento === AUDITORIA_EVENTOS.ORCAMENTO_APROVADO) {
@@ -478,6 +589,100 @@ export class PortalClienteService {
 
   private formatMoney(value: unknown) {
     return Number(value ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  private getConfigList(key: string, fallback: string[]) {
+    const configured = this.configService.get<string>(key);
+    if (!configured) {
+      return fallback;
+    }
+
+    const items = configured
+      .split(/[;\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return items.length ? items : fallback;
+  }
+
+  private formatEndereco(endereco: unknown) {
+    if (!endereco || typeof endereco !== 'object') {
+      return undefined;
+    }
+
+    const record = endereco as Record<string, unknown>;
+    return [
+      record.logradouro,
+      record.numero,
+      record.complemento,
+      record.bairro,
+      record.cidade,
+      record.estado,
+      record.cep ? `CEP ${record.cep}` : undefined,
+    ].filter(Boolean).join(', ');
+  }
+
+  private getEquipamentoDescricao(value: unknown) {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+
+    const record = value as Record<string, unknown>;
+    return [record.tipoEquipamento, record.marca, record.modelo].filter(Boolean).join(' ') || undefined;
+  }
+
+  private getRecebimentoObservacao(value: unknown) {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+
+    const record = value as Record<string, unknown>;
+    return typeof record.observacoesGerais === 'string' ? record.observacoesGerais : undefined;
+  }
+
+  private getGarantiaDataLimite(value: unknown) {
+    if (!value) return undefined;
+    const date = new Date(String(value));
+    if (Number.isNaN(date.getTime())) return undefined;
+    date.setDate(date.getDate() + 90);
+    return date.toISOString();
+  }
+
+  private getStatusOrcamentoTitulo(status?: string) {
+    const labels: Record<string, string> = {
+      rascunho: 'Orcamento em preparacao',
+      enviado: 'Orcamento aguardando resposta',
+      aprovado: 'Orcamento aprovado',
+      reprovado: 'Orcamento reprovado',
+      rejeitado: 'Orcamento reprovado',
+      cancelado: 'Orcamento cancelado',
+      expirado: 'Orcamento expirado',
+    };
+    return labels[String(status || '')] || 'Orcamento atualizado';
+  }
+
+  private getStatusOsPublico(status?: string) {
+    const labels: Record<string, string> = {
+      aberta: 'entrada registrada',
+      em_diagnostico: 'em diagnostico',
+      aguardando_peca: 'aguardando peca',
+      em_execucao: 'em reparo',
+      concluida: 'pronto para retirada',
+      cancelada: 'cancelado',
+      entregue: 'entregue',
+    };
+    return labels[String(status || '')] || String(status || '-');
+  }
+
+  private getStatusGarantiaPublico(status?: string) {
+    const labels: Record<string, string> = {
+      aberta: 'aberta',
+      enviada_fornecedor: 'enviada ao fornecedor',
+      em_analise: 'em analise',
+      aprovada: 'aprovada',
+      recusada: 'recusada',
+      concluida: 'concluida',
+    };
+    return labels[String(status || '')] || String(status || '-');
   }
 
   private getRefName(value: unknown) {

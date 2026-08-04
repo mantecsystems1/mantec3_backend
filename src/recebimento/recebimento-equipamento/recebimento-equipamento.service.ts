@@ -8,6 +8,9 @@ import { CondicoesEquipamento, CondicoesEquipamentoDocument } from '../condicoes
 import { ComponentesAusentes, ComponentesAusentesDocument } from '../componentes-ausentes/componentes-ausentes.schema';
 import { MidiasRecebimento, MidiasRecebimentoDocument } from '../midias/midias-recebimento.schema';
 import { TermosRecebimento, TermosRecebimentoDocument } from '../termos/termos-recebimento.schema';
+import { AuditoriaService } from '../../auditoria/auditoria.service';
+import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS, type AuditoriaEvento } from '../../auditoria/auditoria-eventos';
+import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 
 @Injectable()
 export class RecebimentoEquipamentoService {
@@ -17,11 +20,23 @@ export class RecebimentoEquipamentoService {
     @InjectModel(ComponentesAusentes.name) private componentesAusentesModel: Model<ComponentesAusentesDocument>,
     @InjectModel(MidiasRecebimento.name) private midiasRecebimentoModel: Model<MidiasRecebimentoDocument>,
     @InjectModel(TermosRecebimento.name) private termosRecebimentoModel: Model<TermosRecebimentoDocument>,
+    private readonly auditoriaService: AuditoriaService,
   ) {}
 
-  create(createRecebimentoEquipamentoDto: CreateRecebimentoEquipamentoDto) {
+  async create(createRecebimentoEquipamentoDto: CreateRecebimentoEquipamentoDto, user?: CurrentUserPayload) {
     const createdRecebimentoEquipamento = new this.recebimentoEquipamentoModel(createRecebimentoEquipamentoDto);
-    return createdRecebimentoEquipamento.save();
+    const saved = await createdRecebimentoEquipamento.save();
+
+    await this.registrarAuditoriaRecebimento(saved, user, AUDITORIA_EVENTOS.RECEBIMENTO_CRIADO, {
+      operacao: 'criado',
+      clienteId: createRecebimentoEquipamentoDto.clienteId,
+      tipoEquipamento: createRecebimentoEquipamentoDto.tipoEquipamento,
+      marca: createRecebimentoEquipamentoDto.marca,
+      modelo: createRecebimentoEquipamentoDto.modelo,
+      status: createRecebimentoEquipamentoDto.status,
+    });
+
+    return saved;
   }
 
   findAll() {
@@ -60,11 +75,45 @@ export class RecebimentoEquipamentoService {
     };
   }
 
-  update(id: string, updateRecebimentoEquipamentoDto: UpdateRecebimentoEquipamentoDto) {
-    return this.recebimentoEquipamentoModel.findByIdAndUpdate(id, updateRecebimentoEquipamentoDto, { new: true }).exec();
+  async update(id: string, updateRecebimentoEquipamentoDto: UpdateRecebimentoEquipamentoDto, user?: CurrentUserPayload) {
+    const updated = await this.recebimentoEquipamentoModel.findByIdAndUpdate(id, updateRecebimentoEquipamentoDto, { new: true }).exec();
+
+    if (updated) {
+      await this.registrarAuditoriaRecebimento(updated, user, AUDITORIA_EVENTOS.RECEBIMENTO_ATUALIZADO, {
+        operacao: 'atualizado',
+        campos: Object.keys(updateRecebimentoEquipamentoDto),
+        status: updated.status,
+      });
+    }
+
+    return updated;
   }
 
   remove(id: string) {
     return this.recebimentoEquipamentoModel.findByIdAndDelete(id).exec();
+  }
+
+  private async registrarAuditoriaRecebimento(
+    recebimento: RecebimentoEquipamentoDocument,
+    user: CurrentUserPayload | undefined,
+    tipoEvento: AuditoriaEvento,
+    dados: Record<string, unknown>,
+  ) {
+    const usuarioId = user?.id || user?._id || user?.sub || recebimento.recebidoPor?.toString();
+    if (!usuarioId) {
+      return;
+    }
+
+    await this.auditoriaService.registrarEventoNegocio({
+      empresaId: recebimento.empresaId,
+      usuarioId,
+      tipoEvento,
+      entidade: AUDITORIA_ENTIDADES.RECEBIMENTO,
+      entidadeId: String(recebimento._id),
+      dados: {
+        ...dados,
+        clienteId: recebimento.clienteId?.toString(),
+      },
+    });
   }
 }

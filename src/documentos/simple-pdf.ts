@@ -100,7 +100,7 @@ export class SimplePdfBuilder {
         'BT',
         ...this.pages[index].map((line) => {
           const font = line.bold ? '/F2' : '/F1';
-          return `${font} ${line.size ?? 9} Tf ${line.x} ${line.y} Td (${escapePdfText(line.text)}) Tj`;
+          return `${font} ${line.size ?? 9} Tf 1 0 0 1 ${line.x} ${line.y} Tm (${escapePdfText(line.text)}) Tj`;
         }),
         'ET',
       ].join('\n');

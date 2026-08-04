@@ -7,9 +7,11 @@ import { CondicoesEquipamento, CondicoesEquipamentoSchema } from '../condicoes/c
 import { ComponentesAusentes, ComponentesAusentesSchema } from '../componentes-ausentes/componentes-ausentes.schema';
 import { MidiasRecebimento, MidiasRecebimentoSchema } from '../midias/midias-recebimento.schema';
 import { TermosRecebimento, TermosRecebimentoSchema } from '../termos/termos-recebimento.schema';
+import { AuditoriaModule } from '../../auditoria/auditoria.module';
 
 @Module({
   imports: [
+    AuditoriaModule,
     MongooseModule.forFeature([
       { name: RecebimentoEquipamento.name, schema: RecebimentoEquipamentoSchema },
       { name: CondicoesEquipamento.name, schema: CondicoesEquipamentoSchema },

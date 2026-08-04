@@ -11,6 +11,11 @@ export const PERFIS_SISTEMA = {
 export type PerfilSistema = (typeof PERFIS_SISTEMA)[keyof typeof PERFIS_SISTEMA];
 
 export const EVENTOS_NEGOCIO = {
+  EMPRESA_CONSULTAR: 'empresa.consultar',
+  EMPRESA_GERENCIAR: 'empresa.gerenciar',
+  USUARIO_CONSULTAR: 'usuario.consultar',
+  USUARIO_GERENCIAR: 'usuario.gerenciar',
+
   RECEBIMENTO_CRIAR: 'recebimento.criar',
   RECEBIMENTO_GERAR_TERMO: 'recebimento.gerar_termo',
 
@@ -94,7 +99,8 @@ export const MATRIZ_PERMISSOES: Record<PerfilSistema, ReadonlySet<EventoNegocio>
   [PERFIS_SISTEMA.ADMINISTRADOR]: new Set(Object.values(EVENTOS_NEGOCIO)),
   [PERFIS_SISTEMA.GERENTE]: new Set(Object.values(EVENTOS_NEGOCIO).filter(
     (evento) => evento !== EVENTOS_NEGOCIO.NOTA_FISCAL_CANCELAR
-      && evento !== EVENTOS_NEGOCIO.AUDITORIA_GERENCIAR,
+      && evento !== EVENTOS_NEGOCIO.AUDITORIA_GERENCIAR
+      && evento !== EVENTOS_NEGOCIO.USUARIO_GERENCIAR,
   )),
   [PERFIS_SISTEMA.ATENDENTE]: new Set([
     EVENTOS_NEGOCIO.RECEBIMENTO_CRIAR,
@@ -188,7 +194,10 @@ export function normalizarPerfil(perfil: string): PerfilSistema | null {
     tecnico: PERFIS_SISTEMA.TECNICO,
     tecnico_assistencia: PERFIS_SISTEMA.TECNICO,
     estoquista: PERFIS_SISTEMA.ESTOQUISTA,
+    caixa: PERFIS_SISTEMA.FINANCEIRO,
+    caixa_financeiro: PERFIS_SISTEMA.FINANCEIRO,
     financeiro: PERFIS_SISTEMA.FINANCEIRO,
+    financas: PERFIS_SISTEMA.FINANCEIRO,
     fiscal: PERFIS_SISTEMA.FISCAL,
   };
 
