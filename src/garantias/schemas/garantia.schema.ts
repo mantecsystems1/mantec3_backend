@@ -11,7 +11,7 @@ export class Garantia {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Cliente', required: true })
   clienteId: Types.ObjectId;
 
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Venda', required: true })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Venda' })
   vendaId: Types.ObjectId;
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'OrdemServico' })

@@ -32,11 +32,6 @@ export class GarantiasController {
     return this.garantiasService.findAllGarantias();
   }
 
-  @Get(':id')
-  findOneGarantia(@Param('id') id: string) {
-    return this.garantiasService.findOneGarantia(id);
-  }
-
   @Post(':id/enviar-fornecedor')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.GARANTIA_ENVIAR_FORNECEDOR)
@@ -205,5 +200,10 @@ export class GarantiasController {
   @RequireEvento(EVENTOS_NEGOCIO.GARANTIA_FINALIZAR)
   removeCreditoFornecedor(@Param('id') id: string) {
     return this.garantiasService.removeCreditoFornecedor(id);
+  }
+
+  @Get(':id')
+  findOneGarantia(@Param('id') id: string) {
+    return this.garantiasService.findOneGarantia(id);
   }
 }
