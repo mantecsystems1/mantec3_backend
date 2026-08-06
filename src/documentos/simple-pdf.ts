@@ -47,12 +47,34 @@ type PdfImageResource = {
   data: Buffer;
 };
 
-const escapePdfText = (value: string) =>
-  value
+function toWinAnsi(str: string): string {
+  const map: Record<string, string> = {
+    'á': '\\341', 'à': '\\340', 'â': '\\342', 'ã': '\\343',
+    'é': '\\351', 'ê': '\\352',
+    'í': '\\355',
+    'ó': '\\363', 'ô': '\\364', 'õ': '\\365',
+    'ú': '\\372',
+    'ç': '\\347',
+    'Á': '\\301', 'À': '\\300', 'Â': '\\302', 'Ã': '\\303',
+    'É': '\\311', 'Ê': '\\312',
+    'Í': '\\315',
+    'Ó': '\\323', 'Ô': '\\324', 'Õ': '\\325',
+    'Ú': '\\332',
+    'Ç': '\\307',
+    'º': '\\272', 'ª': '\\252',
+    '\u00a0': ' '
+  };
+  return str.replace(/[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇºª\u00a0]/g, (char) => map[char] || char);
+}
+
+const escapePdfText = (value: string) => {
+  const escaped = String(value || '')
     .replace(/\\/g, '\\\\')
     .replace(/\(/g, '\\(')
     .replace(/\)/g, '\\)')
     .replace(/[\r\n\t]/g, ' ');
+  return toWinAnsi(escaped);
+};
 
 export function wrapText(text: string, maxChars = 92) {
   const words = String(text || '').split(/\s+/).filter(Boolean);
@@ -372,8 +394,8 @@ export class SimplePdfBuilder {
      const objects = [
        '<< /Type /Catalog /Pages 2 0 R >>',
        `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageCount} >>`,
-       '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-       '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>',
+       '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+       '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>',
      ];
 
      for (let index = 0; index < this.pages.length; index += 1) {

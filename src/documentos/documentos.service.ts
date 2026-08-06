@@ -437,7 +437,7 @@ export class DocumentosService {
   }
 
   private formatMoney(value: unknown) {
-    return this.moneyToNumber(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    return this.moneyToNumber(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace(/\u00a0/g, ' ');
   }
 
   private moneyToNumber(value: unknown) {
