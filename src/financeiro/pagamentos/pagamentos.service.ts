@@ -55,11 +55,25 @@ export class PagamentosService {
 
   async findAll(empresaId?: string) {
     if (!empresaId) {
-      return this.pagamentoModel.find().exec();
+      return this.pagamentoModel
+        .find()
+        .populate({
+          path: 'vendaId',
+          select: 'numero total clienteId criadoEm statusFinanceiro',
+          populate: { path: 'clienteId', select: 'nome cpfCnpj email' },
+        })
+        .exec();
     }
 
     const vendaIds = await this.getVendaIdsEmpresa(empresaId);
-    return this.pagamentoModel.find({ vendaId: { $in: vendaIds } }).exec();
+    return this.pagamentoModel
+      .find({ vendaId: { $in: vendaIds } })
+      .populate({
+        path: 'vendaId',
+        select: 'numero total clienteId criadoEm statusFinanceiro',
+        populate: { path: 'clienteId', select: 'nome cpfCnpj email' },
+      })
+      .exec();
   }
 
   async findOne(id: string, empresaId?: string) {
@@ -69,7 +83,14 @@ export class PagamentosService {
     }
 
     await this.getVendaDaEmpresa(pagamento.vendaId.toString(), empresaId);
-    return pagamento;
+    return this.pagamentoModel
+      .findById(id)
+      .populate({
+        path: 'vendaId',
+        select: 'numero total clienteId criadoEm statusFinanceiro',
+        populate: { path: 'clienteId', select: 'nome cpfCnpj email' },
+      })
+      .exec();
   }
 
   async update(id: string, updatePagamentoDto: UpdatePagamentoDto, actorId?: string, actorEmpresaId?: string) {

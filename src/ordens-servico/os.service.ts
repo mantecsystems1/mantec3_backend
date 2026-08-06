@@ -34,6 +34,13 @@ export class OsService {
       throw new BadRequestException(`Status de OS invalido: ${createOrdemServicoDto.statusOperacional}`);
     }
 
+    if (createOrdemServicoDto.orcamentoId) {
+      const existente = await this.findByOrcamento(createOrdemServicoDto.orcamentoId);
+      if (existente) {
+        return existente;
+      }
+    }
+
     const createdOrdemServico = new this.ordemServicoModel(createOrdemServicoDto);
     const saved = await createdOrdemServico.save();
 

@@ -30,6 +30,10 @@ export class VendasService {
       throw new BadRequestException(`Status financeiro invalido: ${dto.statusFinanceiro}`);
     }
 
+    if (!['venda_direta', 'ordem_servico'].includes(dto.origemTipo)) {
+      throw new BadRequestException('Origem da venda invalida. Use venda direta ou ordem de servico.');
+    }
+
     const vendaData: any = { ...dto };
     if (dto.subtotal) {
       vendaData.subtotal = Types.Decimal128.fromString(dto.subtotal);
