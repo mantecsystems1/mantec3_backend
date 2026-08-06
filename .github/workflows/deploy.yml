@@ -8,6 +8,8 @@ on:
 jobs:
   deploy:
     runs-on: [self-hosted, prod]
+    env:
+      IMAGE_REPO: mantecsystems/mantec3-back
 
     steps:
       - name: Checkout
@@ -17,13 +19,58 @@ jobs:
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USER }}" --password-stdin
 
       - name: Build imagem
-        run: docker build -t mantecsystems/mantec3-back:latest .
+        run: |
+          docker build \
+            --pull \
+            --label org.opencontainers.image.revision="${GITHUB_SHA}" \
+            --label org.opencontainers.image.source="${GITHUB_REPOSITORY}" \
+            -t "${IMAGE_REPO}:latest" \
+            -t "${IMAGE_REPO}:${GITHUB_SHA}" \
+            .
 
       - name: Push imagem
-        run: docker push mantecsystems/mantec3-back:latest
-
-      # 🔥 Deploy usando caminho absoluto no servidor
-      - name: Deploy no Swarm (stack)
         run: |
-          docker pull mantecsystems/mantec3-back:latest
-          docker stack deploy -c /home/lemuel/stacks/05-apps/mantec3.yml mantec3
+          docker push "${IMAGE_REPO}:latest"
+          docker push "${IMAGE_REPO}:${GITHUB_SHA}"
+
+      - name: Deploy no Swarm stack
+        run: |
+          docker pull "${IMAGE_REPO}:${GITHUB_SHA}"
+          docker stack deploy \
+            --with-registry-auth \
+            --resolve-image always \
+            -c /home/lemuel/stacks/05-apps/mantec3.yml \
+            mantec3
+
+      - name: Forcar backend para imagem do commit
+        run: |
+          services="$(docker stack services mantec3 --format '{{.Name}} {{.Image}}' | awk -v repo="${IMAGE_REPO}" '$2 ~ "^" repo {print $1}')"
+
+          if [ -z "$services" ]; then
+            echo "Nenhum servico da stack mantec3 usa a imagem ${IMAGE_REPO}."
+            docker stack services mantec3
+            exit 1
+          fi
+
+          for service in $services; do
+            echo "Atualizando $service para ${IMAGE_REPO}:${GITHUB_SHA}"
+            docker service update \
+              --with-registry-auth \
+              --image "${IMAGE_REPO}:${GITHUB_SHA}" \
+              --detach=false \
+              --force \
+              "$service"
+          done
+
+      - name: Verificar imagem em execucao
+        run: |
+          services="$(docker stack services mantec3 --format '{{.Name}} {{.Image}}' | awk -v repo="${IMAGE_REPO}" '$2 ~ "^" repo {print $1}')"
+
+          for service in $services; do
+            docker service inspect "$service" --format 'service={{.Spec.Name}} image={{.Spec.TaskTemplate.ContainerSpec.Image}}'
+            docker service ps "$service" \
+              --no-trunc \
+              --filter desired-state=running \
+              --format 'task={{.Name}} image={{.Image}} current={{.CurrentState}} error={{.Error}}' \
+              | head -5
+          done
