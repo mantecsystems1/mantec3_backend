@@ -7,6 +7,7 @@ import { ItensUtilizadosOS, ItensUtilizadosOSSchema } from './schemas/itens-util
 import { PecasReservadasOS, PecasReservadasOSSchema } from './schemas/pecas-reservadas-os.schema';
 import { AuditoriaModule } from '../auditoria/auditoria.module';
 import { EstoqueModule } from '../estoque/estoque.module';
+import { Venda, VendaSchema } from '../financeiro/vendas/schemas/venda.schema';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { EstoqueModule } from '../estoque/estoque.module';
       { name: OrdemServico.name, schema: OrdemServicoSchema },
       { name: ItensUtilizadosOS.name, schema: ItensUtilizadosOSSchema },
       { name: PecasReservadasOS.name, schema: PecasReservadasOSSchema },
+      { name: Venda.name, schema: VendaSchema },
     ]),
   ],
   controllers: [OsController],

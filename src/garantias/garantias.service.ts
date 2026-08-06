@@ -45,7 +45,10 @@ export class GarantiasService {
     );
 
     if (!fornecedorId) {
-      throw new BadRequestException('Fornecedor nao informado e nao foi possivel inferir pelo historico de compras do produto.');
+      throw new BadRequestException({
+        field: 'fornecedorId',
+        message: 'Selecione o fornecedor da garantia. Nao foi possivel inferir pelo historico de compras do produto.',
+      });
     }
 
     const garantiaData = { ...createGarantiaDto, fornecedorId, status };

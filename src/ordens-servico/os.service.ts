@@ -17,6 +17,8 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 import { EstoqueService } from '../estoque/estoque.service';
 import { MOVIMENTO_ESTOQUE_ORIGEM, MOVIMENTO_ESTOQUE_TIPO } from '../estoque/movimento-estoque.types';
+import { Venda, VendaDocument } from '../financeiro/vendas/schemas/venda.schema';
+import { VENDA_STATUS_FINANCEIRO } from '../financeiro/vendas/venda-financeiro.states';
 import type { CurrentUserPayload } from '../common/decorators/current-user.decorator';
 
 @Injectable()
@@ -25,6 +27,7 @@ export class OsService {
     @InjectModel(OrdemServico.name) private ordemServicoModel: Model<OrdemServicoDocument>,
     @InjectModel(ItensUtilizadosOS.name) private itensUtilizadosOSModel: Model<ItensUtilizadosOSDocument>,
     @InjectModel(PecasReservadasOS.name) private pecasReservadasOSModel: Model<PecasReservadasOSDocument>,
+    @InjectModel(Venda.name) private vendaModel: Model<VendaDocument>,
     private readonly auditoriaService: AuditoriaService,
     private readonly estoqueService: EstoqueService,
   ) { }
@@ -147,6 +150,18 @@ export class OsService {
 
     if (ordemServico.statusOperacional !== OS_STATUS.CONCLUIDA) {
       throw new BadRequestException('A assinatura de entrega so pode ser registrada em OS concluida.');
+    }
+
+    const venda = await this.vendaModel
+      .findOne({ origemTipo: 'ordem_servico', origemId: new Types.ObjectId(id) })
+      .exec();
+
+    if (!venda) {
+      throw new BadRequestException('Gere a venda vinculada a esta OS antes de registrar a entrega.');
+    }
+
+    if (venda.statusFinanceiro !== VENDA_STATUS_FINANCEIRO.PAGO) {
+      throw new BadRequestException('Registre o pagamento total da venda antes de entregar o equipamento.');
     }
 
     const assinaturaEntregaHashSha256 = createHash('sha256')

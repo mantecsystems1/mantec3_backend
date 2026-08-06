@@ -59,10 +59,12 @@ describe('GarantiasService', () => {
     const { service, save } = createService();
     const { fornecedorId: _fornecedorId, ...payloadSemFornecedor } = payload;
 
-    await expect(service.createGarantia(payloadSemFornecedor)).rejects.toThrow(BadRequestException);
-    await expect(service.createGarantia(payloadSemFornecedor)).rejects.toThrow(
-      'Fornecedor nao informado e nao foi possivel inferir pelo historico de compras do produto.',
-    );
+    await expect(service.createGarantia(payloadSemFornecedor)).rejects.toMatchObject({
+      response: {
+        field: 'fornecedorId',
+        message: 'Selecione o fornecedor da garantia. Nao foi possivel inferir pelo historico de compras do produto.',
+      },
+    });
     expect(save).not.toHaveBeenCalled();
   });
 });
