@@ -141,6 +141,58 @@ export class PortalClienteService {
       timeline,
       this.getTimelineSintetica({ orcamentos, ordensServico, vendas, garantias }),
     );
+    const portalOrcamentos = orcamentos.map((orcamento) => ({
+      ...this.toPlain(orcamento),
+      id: String(orcamento._id),
+      total: this.decimalToNumber(orcamento.total),
+      subtotal: this.decimalToNumber(orcamento.subtotal),
+      descontos: this.decimalToNumber(orcamento.descontos),
+      itens: itensOrcamento
+        .filter((item) => String(item.orcamentoId) === String(orcamento._id))
+        .map((item) => ({
+          ...this.toPlain(item),
+          id: String(item._id),
+          descricao: this.getItemDescricao(item, produtos, servicos),
+          valorUnitario: this.decimalToNumber(item.valorUnitario),
+          totalItem: this.decimalToNumber(item.totalItem),
+        })),
+      podeDecidir: orcamento.status === ORCAMENTO_STATUS.ENVIADO,
+    }));
+    const portalOrdensServico = ordensServico.map((ordem) => ({
+      ...this.toPlain(ordem),
+      id: String(ordem._id),
+      equipamento: this.getEquipamentoDescricao(ordem.recebimentoEquipamentoId),
+      problemaRelatado: this.getRecebimentoObservacao(ordem.recebimentoEquipamentoId),
+    }));
+    const portalVendas = vendas.map((venda) => ({
+      ...this.toPlain(venda),
+      id: String(venda._id),
+      total: this.decimalToNumber(venda.total),
+      subtotal: this.decimalToNumber(venda.subtotal),
+      descontos: this.decimalToNumber(venda.descontos),
+      pagamentos: pagamentos
+        .filter((pagamento) => String(pagamento.vendaId) === String(venda._id))
+        .map((pagamento) => ({
+          ...this.toPlain(pagamento),
+          id: String(pagamento._id),
+          valor: this.decimalToNumber(pagamento.valor),
+        })),
+    }));
+    const portalGarantias = garantias.map((garantia) => ({
+      ...this.toPlain(garantia),
+      id: String(garantia._id),
+      produto: this.getRefName(garantia.produtoId),
+      defeitoRelatado: garantia.motivo,
+      dataAbertura: garantia.criadoEm,
+      dataLimite: this.getGarantiaDataLimite(garantia.criadoEm),
+    }));
+    const atendimentos = this.buildPortalAtendimentos({
+      ordensServico: portalOrdensServico,
+      vendas: portalVendas,
+      orcamentos: portalOrcamentos,
+      garantias: portalGarantias,
+      timeline: timelineCompleta,
+    });
 
     return {
       empresa: {
@@ -169,52 +221,12 @@ export class PortalClienteService {
         telefone: cliente.telefone,
         email: cliente.email,
       },
-      orcamentos: orcamentos.map((orcamento) => ({
-        ...this.toPlain(orcamento),
-        id: String(orcamento._id),
-        total: this.decimalToNumber(orcamento.total),
-        subtotal: this.decimalToNumber(orcamento.subtotal),
-        descontos: this.decimalToNumber(orcamento.descontos),
-        itens: itensOrcamento
-          .filter((item) => String(item.orcamentoId) === String(orcamento._id))
-          .map((item) => ({
-            ...this.toPlain(item),
-            id: String(item._id),
-            descricao: this.getItemDescricao(item, produtos, servicos),
-            valorUnitario: this.decimalToNumber(item.valorUnitario),
-            totalItem: this.decimalToNumber(item.totalItem),
-          })),
-        podeDecidir: orcamento.status === ORCAMENTO_STATUS.ENVIADO,
-      })),
-      ordensServico: ordensServico.map((ordem) => ({
-        ...this.toPlain(ordem),
-        id: String(ordem._id),
-        equipamento: this.getEquipamentoDescricao(ordem.recebimentoEquipamentoId),
-        problemaRelatado: this.getRecebimentoObservacao(ordem.recebimentoEquipamentoId),
-      })),
-      vendas: vendas.map((venda) => ({
-        ...this.toPlain(venda),
-        id: String(venda._id),
-        total: this.decimalToNumber(venda.total),
-        subtotal: this.decimalToNumber(venda.subtotal),
-        descontos: this.decimalToNumber(venda.descontos),
-        pagamentos: pagamentos
-          .filter((pagamento) => String(pagamento.vendaId) === String(venda._id))
-          .map((pagamento) => ({
-            ...this.toPlain(pagamento),
-            id: String(pagamento._id),
-            valor: this.decimalToNumber(pagamento.valor),
-          })),
-      })),
-      garantias: garantias.map((garantia) => ({
-        ...this.toPlain(garantia),
-        id: String(garantia._id),
-        produto: this.getRefName(garantia.produtoId),
-        defeitoRelatado: garantia.motivo,
-        dataAbertura: garantia.criadoEm,
-        dataLimite: this.getGarantiaDataLimite(garantia.criadoEm),
-      })),
+      orcamentos: portalOrcamentos,
+      ordensServico: portalOrdensServico,
+      vendas: portalVendas,
+      garantias: portalGarantias,
       timeline: timelineCompleta,
+      atendimentos,
     };
   }
 
@@ -253,6 +265,12 @@ export class PortalClienteService {
     const payload = this.verifyToken(token);
     await this.assertVendaPertenceAoCliente(vendaId, payload);
     return this.documentosService.gerarReciboPdf(vendaId);
+  }
+
+  async gerarAtendimentoPdf(token: string, atendimentoId: string) {
+    const payload = this.verifyToken(token);
+    await this.assertAtendimentoPertenceAoCliente(atendimentoId, payload);
+    return this.documentosService.gerarAtendimentoPdf(atendimentoId, payload.empresaId);
   }
 
   private signToken(payload: PortalTokenPayload) {
@@ -365,6 +383,183 @@ export class PortalClienteService {
     if (!venda) {
       throw new NotFoundException('Recibo nao encontrado para este cliente.');
     }
+  }
+
+  private async assertAtendimentoPertenceAoCliente(atendimentoId: string, payload: PortalTokenPayload) {
+    const tipo = atendimentoId.startsWith('os-') ? 'os' : 'venda';
+    const id = tipo === 'os'
+      ? atendimentoId.slice(3)
+      : atendimentoId.startsWith('venda-')
+        ? atendimentoId.slice(6)
+        : atendimentoId;
+
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Atendimento invalido.');
+    }
+
+    const empresaId = new Types.ObjectId(payload.empresaId);
+    const clienteId = new Types.ObjectId(payload.clienteId);
+
+    if (tipo === 'os') {
+      const ordemServico = await this.ordemServicoModel.findOne({
+        _id: new Types.ObjectId(id),
+        clienteId,
+        empresaId,
+      }).lean().exec();
+      if (!ordemServico) {
+        throw new NotFoundException('Atendimento nao encontrado para este cliente.');
+      }
+      return;
+    }
+
+    const venda = await this.vendaModel.findOne({
+      _id: new Types.ObjectId(id),
+      clienteId,
+      empresaId,
+    }).lean().exec();
+    if (!venda) {
+      throw new NotFoundException('Atendimento nao encontrado para este cliente.');
+    }
+  }
+
+  private buildPortalAtendimentos({
+    ordensServico,
+    vendas,
+    orcamentos,
+    garantias,
+    timeline,
+  }: {
+    ordensServico: any[];
+    vendas: any[];
+    orcamentos: any[];
+    garantias: any[];
+    timeline: any[];
+  }) {
+    const usedVendaIds = new Set<string>();
+    const usedGarantiaIds = new Set<string>();
+
+    const atendimentos: any[] = ordensServico.map((ordem) => {
+      const venda = vendas.find((item) =>
+        item.origemTipo === 'ordem_servico' && String(item.origemId) === String(ordem.id),
+      );
+      if (venda) usedVendaIds.add(venda.id);
+
+      const ordemOrcamentoId = String(ordem.orcamentoId?._id || ordem.orcamentoId || '');
+      const ordemRecebimentoId = String(ordem.recebimentoEquipamentoId?._id || ordem.recebimentoEquipamentoId || '');
+      const orcamentosAtendimento = orcamentos.filter((orcamento) =>
+        String(orcamento.id) === ordemOrcamentoId ||
+        (
+          ordemRecebimentoId &&
+          String(orcamento.recebimentoEquipamentoId?._id || orcamento.recebimentoEquipamentoId || '') === ordemRecebimentoId
+        ),
+      );
+      const garantiasAtendimento = garantias.filter((garantia) =>
+        (venda && String(garantia.vendaId) === String(venda.id)) ||
+        String(garantia.ordemServicoId || '') === String(ordem.id),
+      );
+      garantiasAtendimento.forEach((garantia) => usedGarantiaIds.add(garantia.id));
+
+      const entityIds = [
+        ordem.id,
+        venda?.id,
+        ...orcamentosAtendimento.map((orcamento) => orcamento.id),
+        ...garantiasAtendimento.map((garantia) => garantia.id),
+      ].filter(Boolean).map(String);
+
+      return {
+        id: `os-${ordem.id}`,
+        tipo: 'ordem_servico',
+        titulo: ordem.equipamento || ordem.problemaRelatado || `Servico #${String(ordem.id).slice(-6).toUpperCase()}`,
+        descricaoCurta: this.getAtendimentoDescricaoOs(ordem),
+        status: ordem.statusOperacional,
+        statusPublico: this.getStatusOsPublico(ordem.statusOperacional),
+        dataPrincipal: ordem.dataEntrada || ordem.criadoEm,
+        valorTotal: venda?.total ?? orcamentosAtendimento[0]?.total,
+        pagamentoStatus: venda ? this.getPagamentoStatus(venda) : 'sem_cobranca',
+        ordemServico: ordem,
+        venda,
+        orcamentos: orcamentosAtendimento,
+        garantias: garantiasAtendimento,
+        timeline: this.filterTimelineByEntities(timeline, entityIds),
+      };
+    });
+
+    vendas
+      .filter((venda) => !usedVendaIds.has(venda.id))
+      .forEach((venda) => {
+        const garantiasVenda = garantias.filter((garantia) => String(garantia.vendaId) === String(venda.id));
+        garantiasVenda.forEach((garantia) => usedGarantiaIds.add(garantia.id));
+        const entityIds = [venda.id, ...garantiasVenda.map((garantia) => garantia.id)].map(String);
+
+        atendimentos.push({
+          id: `venda-${venda.id}`,
+          tipo: 'venda_direta',
+          titulo: venda.numero ? `Venda #${venda.numero}` : `Venda #${String(venda.id).slice(-6).toUpperCase()}`,
+          descricaoCurta: 'Venda direta realizada na loja.',
+          status: venda.statusFinanceiro,
+          statusPublico: this.getStatusPagamentoPublico(venda.statusFinanceiro),
+          dataPrincipal: venda.criadoEm,
+          valorTotal: venda.total,
+          pagamentoStatus: this.getPagamentoStatus(venda),
+          venda,
+          orcamentos: [],
+          garantias: garantiasVenda,
+          timeline: this.filterTimelineByEntities(timeline, entityIds),
+        });
+      });
+
+    garantias
+      .filter((garantia) => !usedGarantiaIds.has(garantia.id))
+      .forEach((garantia) => {
+        atendimentos.push({
+          id: `garantia-${garantia.id}`,
+          tipo: 'garantia',
+          titulo: garantia.produto || `Garantia #${String(garantia.id).slice(-6).toUpperCase()}`,
+          descricaoCurta: garantia.defeitoRelatado || 'Garantia em acompanhamento.',
+          status: garantia.status,
+          statusPublico: this.getStatusGarantiaPublico(garantia.status),
+          dataPrincipal: garantia.dataAbertura || garantia.criadoEm,
+          pagamentoStatus: 'sem_cobranca',
+          orcamentos: [],
+          garantias: [garantia],
+          timeline: this.filterTimelineByEntities(timeline, [garantia.id]),
+        });
+      });
+
+    return atendimentos.sort((a, b) =>
+      new Date(b.dataPrincipal || 0).getTime() - new Date(a.dataPrincipal || 0).getTime(),
+    );
+  }
+
+  private getAtendimentoDescricaoOs(ordem: any) {
+    return [
+      ordem.numero ? `OS #${ordem.numero}` : `OS #${String(ordem.id).slice(-6).toUpperCase()}`,
+      ordem.dataEntrada ? `Entrada ${new Date(ordem.dataEntrada).toLocaleDateString('pt-BR')}` : undefined,
+      ordem.problemaRelatado,
+    ].filter(Boolean).join(' | ');
+  }
+
+  private getPagamentoStatus(venda: any) {
+    if (!venda) return 'sem_cobranca';
+    if (venda.statusFinanceiro === 'pago') return 'pago';
+    if (venda.statusFinanceiro === 'parcial') return 'parcial';
+    if (venda.statusFinanceiro === 'cancelado') return 'sem_cobranca';
+    return 'pendente';
+  }
+
+  private getStatusPagamentoPublico(status?: string) {
+    const labels: Record<string, string> = {
+      pago: 'pago',
+      parcial: 'pagamento parcial',
+      pendente: 'aguardando pagamento',
+      cancelado: 'cancelado',
+    };
+    return labels[String(status || '')] || String(status || '-');
+  }
+
+  private filterTimelineByEntities(timeline: any[], entityIds: string[]) {
+    const ids = new Set(entityIds.filter(Boolean).map(String));
+    return timeline.filter((item) => ids.has(String(item.entidadeId)));
   }
 
   private async getTimelinePublica({

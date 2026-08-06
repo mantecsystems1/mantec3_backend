@@ -42,6 +42,16 @@ export class PortalClienteController {
     this.sendPdf(res, pdf, `recibo-${vendaId}.pdf`);
   }
 
+  @Get(':token/atendimentos/:atendimentoId/recibo.pdf')
+  async atendimentoPdf(
+    @Param('token') token: string,
+    @Param('atendimentoId') atendimentoId: string,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.portalClienteService.gerarAtendimentoPdf(token, atendimentoId);
+    this.sendPdf(res, pdf, `atendimento-${atendimentoId}.pdf`);
+  }
+
   @Post(':token/orcamentos/:orcamentoId/aprovar')
   aprovarOrcamento(@Param('token') token: string, @Param('orcamentoId') orcamentoId: string) {
     return this.portalClienteService.decidirOrcamento(token, orcamentoId, 'aprovar');

@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Cliente, ClienteDocument } from '../clientes/schemas/cliente.schema';
+import { Produto, ProdutoDocument } from '../catalogo/produtos/schemas/produto.schema';
+import { Servico, ServicoDocument } from '../catalogo/servicos/schemas/servico.schema';
 import { Empresa, EmpresaDocument } from '../core/empresa/schemas/empresa.schema';
 import { Pagamento, PagamentoDocument } from '../financeiro/pagamentos/schemas/pagamento.schema';
 import { Venda, VendaDocument } from '../financeiro/vendas/schemas/venda.schema';
@@ -18,6 +20,8 @@ export class DocumentosService {
   constructor(
     @InjectModel(Empresa.name) private readonly empresaModel: Model<EmpresaDocument>,
     @InjectModel(Cliente.name) private readonly clienteModel: Model<ClienteDocument>,
+    @InjectModel(Produto.name) private readonly produtoModel: Model<ProdutoDocument>,
+    @InjectModel(Servico.name) private readonly servicoModel: Model<ServicoDocument>,
     @InjectModel(Orcamento.name) private readonly orcamentoModel: Model<OrcamentoDocument>,
     @InjectModel(ItensOrcamento.name) private readonly itensOrcamentoModel: Model<ItensOrcamentoDocument>,
     @InjectModel(Venda.name) private readonly vendaModel: Model<VendaDocument>,
@@ -121,6 +125,133 @@ export class DocumentosService {
     return pdf.build();
   }
 
+  async gerarAtendimentoPdf(atendimentoId: string, empresaId?: string) {
+    const { tipo, id } = this.parseAtendimentoId(atendimentoId);
+    let ordemServico = tipo === 'os'
+      ? await this.ordemServicoModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec()
+      : null;
+
+    const venda = tipo === 'venda'
+      ? await this.vendaModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec()
+      : await this.vendaModel.findOne(this.getEmpresaQuery(empresaId, {
+          origemTipo: 'ordem_servico',
+          origemId: new Types.ObjectId(id),
+        })).lean().exec();
+
+    if (!venda) {
+      throw new NotFoundException('Venda do atendimento nao encontrada.');
+    }
+
+    if (!ordemServico && venda.origemTipo === 'ordem_servico' && venda.origemId) {
+      ordemServico = await this.ordemServicoModel.findById(venda.origemId).lean().exec();
+    }
+
+    const [empresa, cliente, itens, pagamentos, recebimento, orcamento] = await Promise.all([
+      this.empresaModel.findById(venda.empresaId).lean().exec(),
+      this.clienteModel.findById(venda.clienteId).lean().exec(),
+      this.itensVendaModel.find({ vendaId: venda._id }).lean().exec(),
+      this.pagamentoModel.find({ vendaId: venda._id }).lean().exec(),
+      ordemServico?.recebimentoEquipamentoId
+        ? this.recebimentoModel.findById(ordemServico.recebimentoEquipamentoId).lean().exec()
+        : Promise.resolve(null),
+      ordemServico?.orcamentoId
+        ? this.orcamentoModel.findById(ordemServico.orcamentoId).lean().exec()
+        : Promise.resolve(null),
+    ]);
+
+    const produtoIds = itens
+      .filter((item) => item.tipo === 'produto' && Types.ObjectId.isValid(String(item.referenciaId)))
+      .map((item) => item.referenciaId);
+    const servicoIds = itens
+      .filter((item) => item.tipo === 'servico' && Types.ObjectId.isValid(String(item.referenciaId)))
+      .map((item) => item.referenciaId);
+    const [produtos, servicos] = await Promise.all([
+      this.produtoModel.find({ _id: { $in: produtoIds } }).lean().exec(),
+      this.servicoModel.find({ _id: { $in: servicoIds } }).lean().exec(),
+    ]);
+    const ordemServicoRecord = ordemServico as Record<string, any> | null;
+
+    const pdf = this.criarBase('RECIBO DO ATENDIMENTO', empresa, cliente);
+    pdf.addKeyValue('Documento', this.numeroDocumento('ATD', venda._id));
+    pdf.addKeyValue('Data de emissao', this.formatDate(new Date()));
+    pdf.addKeyValue('Origem', ordemServico ? this.numeroDocumento('OS', ordemServico._id) : 'Venda direta');
+    pdf.addKeyValue('Status financeiro', venda.statusFinanceiro);
+    pdf.addHorizontalRule();
+
+    if (ordemServico || recebimento) {
+      pdf.addSection('Servico e equipamento');
+      pdf.addKeyValue('Status do servico', ordemServicoRecord?.statusOperacional || '-');
+      pdf.addKeyValue('Entrada', this.formatDate(ordemServicoRecord?.dataEntrada || recebimento?.dataRecebimento));
+      pdf.addKeyValue('Previsao de entrega', this.formatDate(ordemServicoRecord?.dataPrevistaEntrega));
+      pdf.addKeyValue('Equipamento', recebimento ? `${recebimento.tipoEquipamento || ''} ${recebimento.marca || ''} ${recebimento.modelo || ''}`.trim() : '-');
+      pdf.addKeyValue('IMEI/Serial', recebimento?.imeiOuSerial || '-');
+      if (recebimento?.observacoesGerais) {
+        pdf.addWrapped(`Defeito relatado: ${recebimento.observacoesGerais}`);
+      }
+      if (ordemServicoRecord?.diagnosticoTecnico) {
+        pdf.addWrapped(`Diagnostico: ${ordemServicoRecord.diagnosticoTecnico}`);
+      }
+      if (ordemServicoRecord?.solucaoAplicada) {
+        pdf.addWrapped(`Solucao aplicada: ${ordemServicoRecord.solucaoAplicada}`);
+      }
+    }
+
+    if (orcamento) {
+      pdf.addSection('Orcamento vinculado');
+      pdf.addKeyValue('Codigo', this.numeroDocumento('ORC', orcamento._id));
+      pdf.addKeyValue('Status', orcamento.status);
+      pdf.addKeyValue('Total aprovado', this.formatMoney(orcamento.total));
+    }
+
+    pdf.addSection('Produtos e servicos');
+    pdf.addTable(
+      ['Descricao', 'Tipo', 'Qtd', 'Valor', 'Total'],
+      itens.map((item) => [
+        this.getItemDescricao(item, produtos, servicos),
+        item.tipo,
+        String(item.quantidade),
+        this.formatMoney(item.valorUnitario),
+        this.formatMoney(item.totalItem),
+      ]),
+    );
+
+    pdf.addSection('Pagamento');
+    pdf.addTable(
+      ['Forma', 'Data', 'Valor'],
+      pagamentos.map((pagamento) => [
+        pagamento.formaPagamento,
+        this.formatDate(pagamento.dataPagamento),
+        this.formatMoney(pagamento.valor),
+      ]),
+    );
+    const totalPago = pagamentos.reduce((sum, pagamento) => sum + this.moneyToNumber(pagamento.valor), 0);
+    const totalVenda = this.moneyToNumber(venda.total);
+    pdf.addKeyValue('Subtotal', this.formatMoney(venda.subtotal));
+    pdf.addKeyValue('Descontos', this.formatMoney(venda.descontos));
+    pdf.addKeyValue('Pago', this.formatMoney(totalPago));
+    pdf.addKeyValue('Restante', this.formatMoney(Math.max(totalVenda - totalPago, 0)));
+    pdf.addHighlight('Total pago/atendimento', this.formatMoney(venda.total));
+
+    if (ordemServicoRecord?.dataEntrega || ordemServicoRecord?.assinaturaEntregaHashSha256) {
+      pdf.addSection('Retirada e assinatura');
+      pdf.addKeyValue('Entregue para', ordemServicoRecord.entregueParaNome || cliente?.nome || '-');
+      pdf.addKeyValue('Documento', ordemServicoRecord.entregueParaDocumento || cliente?.cpfCnpj || '-');
+      pdf.addKeyValue('Data', this.formatDate(ordemServicoRecord.dataEntrega));
+      pdf.addKeyValue('Hash assinatura', ordemServicoRecord.assinaturaEntregaHashSha256 || '-');
+      pdf.addSignatureBox('Assinatura do cliente/responsavel', ordemServicoRecord.assinaturaEntregaImagemBase64);
+      if (ordemServicoRecord.observacoesEntrega) {
+        pdf.addWrapped(ordemServicoRecord.observacoesEntrega);
+      }
+    }
+
+    pdf.addSection('Termos de garantia');
+    pdf.addWrapped('A garantia cobre apenas defeitos de fabricacao das pecas instaladas e servicos realizados neste atendimento.');
+    pdf.addWrapped('Nao cobre danos causados por mau uso, queda, liquidos, curto eletrico, virus, software, intervencao de terceiros ou reincidencia causada por condicoes externas ao servico executado.');
+    pdf.addWrapped('Guarde este documento para consulta de recibo, atendimento e garantia.');
+
+    return pdf.build();
+  }
+
   async gerarTermoPdf(id: string, empresaId?: string) {
     const recebimento = await this.recebimentoModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec();
     if (!recebimento) throw new NotFoundException('Recebimento nao encontrado.');
@@ -166,6 +297,7 @@ export class DocumentosService {
   private criarBase(titulo: string, empresa: any, cliente: any) {
     const pdf = new SimplePdfBuilder();
     pdf.addTitle(titulo);
+    pdf.addHorizontalRule();
     pdf.addSection('Empresa');
     pdf.addKeyValue('Nome', empresa?.nomeFantasia || empresa?.razaoSocial || '-');
     pdf.addKeyValue('CNPJ', empresa?.cnpj || '-');
@@ -179,6 +311,40 @@ export class DocumentosService {
 
   private numeroDocumento(prefixo: string, id: unknown) {
     return `${prefixo}-${String(id).slice(-8).toUpperCase()}`;
+  }
+
+  private parseAtendimentoId(atendimentoId: string) {
+    if (atendimentoId.startsWith('os-')) {
+      return { tipo: 'os', id: atendimentoId.slice(3) };
+    }
+
+    if (atendimentoId.startsWith('venda-')) {
+      return { tipo: 'venda', id: atendimentoId.slice(6) };
+    }
+
+    return { tipo: 'venda', id: atendimentoId };
+  }
+
+  private getItemDescricao(
+    item: { tipo?: string; referenciaId?: unknown },
+    produtos: Array<{ _id?: unknown; nome?: string; codigoInterno?: string }>,
+    servicos: Array<{ _id?: unknown; nome?: string }>,
+  ) {
+    if (item.tipo === 'produto') {
+      const produto = produtos.find((produtoItem) => String(produtoItem._id) === String(item.referenciaId));
+      if (produto) {
+        return produto.codigoInterno ? `${produto.nome} (${produto.codigoInterno})` : produto.nome || 'Produto';
+      }
+    }
+
+    if (item.tipo === 'servico') {
+      const servico = servicos.find((servicoItem) => String(servicoItem._id) === String(item.referenciaId));
+      if (servico) {
+        return servico.nome || 'Servico';
+      }
+    }
+
+    return `${item.tipo || 'Item'} ${String(item.referenciaId || '').slice(-6).toUpperCase()}`;
   }
 
   private getEmpresaQuery(empresaId?: string, base: Record<string, unknown> = {}) {
@@ -201,10 +367,14 @@ export class DocumentosService {
   }
 
   private formatMoney(value: unknown) {
+    return this.moneyToNumber(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  private moneyToNumber(value: unknown) {
     const raw = value && typeof value === 'object' && '$numberDecimal' in value
       ? (value as { $numberDecimal?: string }).$numberDecimal
       : value;
     const amount = Number(raw ?? 0);
-    return amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    return Number.isFinite(amount) ? amount : 0;
   }
 }

@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Cliente, ClienteSchema } from '../clientes/schemas/cliente.schema';
+import { Produto, ProdutoSchema } from '../catalogo/produtos/schemas/produto.schema';
+import { Servico, ServicoSchema } from '../catalogo/servicos/schemas/servico.schema';
 import { Empresa, EmpresaSchema } from '../core/empresa/schemas/empresa.schema';
 import { Pagamento, PagamentoSchema } from '../financeiro/pagamentos/schemas/pagamento.schema';
 import { ItensVenda, ItensVendaSchema } from '../financeiro/vendas/schemas/itens-venda.schema';
@@ -18,6 +20,8 @@ import { DocumentosService } from './documentos.service';
     MongooseModule.forFeature([
       { name: Empresa.name, schema: EmpresaSchema },
       { name: Cliente.name, schema: ClienteSchema },
+      { name: Produto.name, schema: ProdutoSchema },
+      { name: Servico.name, schema: ServicoSchema },
       { name: Orcamento.name, schema: OrcamentoSchema },
       { name: ItensOrcamento.name, schema: ItensOrcamentoSchema },
       { name: Venda.name, schema: VendaSchema },
