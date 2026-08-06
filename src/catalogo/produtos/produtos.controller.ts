@@ -36,6 +36,22 @@ const produtoFotoFilter = (_req: unknown, file: { mimetype: string }, callback: 
   callback(null, true);
 };
 
+const montarDadosFotoProduto = (file: any, body: any) => {
+  const fotoHashSha256 = createHash('sha256').update(readFileSync(file.path)).digest('hex');
+
+  return {
+    ...body,
+    fotoUrl: `/uploads/produtos/${file.filename}`,
+    fotoNomeOriginal: file.originalname,
+    fotoNomeArquivo: file.filename,
+    fotoMimeType: file.mimetype,
+    fotoTamanhoBytes: file.size,
+    fotoHashSha256,
+    fotoOrigemCaptura: body.fotoOrigemCaptura ?? 'arquivo',
+    fotoCapturadaEm: body.fotoCapturadaEm ?? new Date().toISOString(),
+  };
+};
+
 @Controller('produtos')
 export class ProdutosController {
   constructor(private readonly produtosService: ProdutosService) {}
@@ -56,19 +72,7 @@ export class ProdutosController {
       return this.produtosService.create(body);
     }
 
-    const fotoHashSha256 = createHash('sha256').update(readFileSync(file.path)).digest('hex');
-
-    return this.produtosService.create({
-      ...body,
-      fotoUrl: `/uploads/produtos/${file.filename}`,
-      fotoNomeOriginal: file.originalname,
-      fotoNomeArquivo: file.filename,
-      fotoMimeType: file.mimetype,
-      fotoTamanhoBytes: file.size,
-      fotoHashSha256,
-      fotoOrigemCaptura: body.fotoOrigemCaptura ?? 'arquivo',
-      fotoCapturadaEm: body.fotoCapturadaEm ?? new Date().toISOString(),
-    });
+    return this.produtosService.create(montarDadosFotoProduto(file, body));
   }
 
   @Get()
@@ -84,6 +88,20 @@ export class ProdutosController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateProdutoDto: UpdateProdutoDto) {
     return this.produtosService.update(id, updateProdutoDto);
+  }
+
+  @Patch(':id/upload')
+  @UseInterceptors(FileInterceptor('foto', {
+    storage: produtoFotoStorage,
+    fileFilter: produtoFotoFilter,
+    limits: { fileSize: 15 * 1024 * 1024 },
+  }))
+  updateComFoto(@Param('id') id: string, @UploadedFile() file: any, @Body() body: any) {
+    if (!file) {
+      return this.produtosService.update(id, body);
+    }
+
+    return this.produtosService.update(id, montarDadosFotoProduto(file, body));
   }
 
   @Delete(':id')
