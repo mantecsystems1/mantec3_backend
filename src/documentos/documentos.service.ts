@@ -13,6 +13,8 @@ import { ItensOrcamento, ItensOrcamentoDocument } from '../orcamentos/schemas/it
 import { RecebimentoEquipamento, RecebimentoEquipamentoDocument } from '../recebimento/recebimento-equipamento/recebimento-equipamento.schema';
 import { TermosRecebimento, TermosRecebimentoDocument } from '../recebimento/termos/termos-recebimento.schema';
 import { OrdemServico, OrdemServicoDocument } from '../ordens-servico/schemas/ordem-servico.schema';
+import { LogEvento, LogEventoDocument } from '../auditoria/schemas/log-evento.schema';
+import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 import { SimplePdfBuilder } from './simple-pdf';
 
 @Injectable()
@@ -30,6 +32,7 @@ export class DocumentosService {
     @InjectModel(RecebimentoEquipamento.name) private readonly recebimentoModel: Model<RecebimentoEquipamentoDocument>,
     @InjectModel(TermosRecebimento.name) private readonly termoModel: Model<TermosRecebimentoDocument>,
     @InjectModel(OrdemServico.name) private readonly ordemServicoModel: Model<OrdemServicoDocument>,
+    @InjectModel(LogEvento.name) private readonly logEventoModel: Model<LogEventoDocument>,
   ) {}
 
   async gerarOrcamentoPdf(id: string, empresaId?: string) {
@@ -138,19 +141,22 @@ export class DocumentosService {
           origemId: new Types.ObjectId(id),
         })).lean().exec();
 
-    if (!venda) {
-      throw new NotFoundException('Venda do atendimento nao encontrada.');
+    if (!venda && !ordemServico) {
+      throw new NotFoundException('Atendimento nao encontrado.');
     }
 
-    if (!ordemServico && venda.origemTipo === 'ordem_servico' && venda.origemId) {
+    if (!ordemServico && venda?.origemTipo === 'ordem_servico' && venda.origemId) {
       ordemServico = await this.ordemServicoModel.findById(venda.origemId).lean().exec();
     }
 
-    const [empresa, cliente, itens, pagamentos, recebimento, orcamento] = await Promise.all([
-      this.empresaModel.findById(venda.empresaId).lean().exec(),
-      this.clienteModel.findById(venda.clienteId).lean().exec(),
-      this.itensVendaModel.find({ vendaId: venda._id }).lean().exec(),
-      this.pagamentoModel.find({ vendaId: venda._id }).lean().exec(),
+    const atendimentoEmpresaId = venda?.empresaId || ordemServico?.empresaId;
+    const atendimentoClienteId = venda?.clienteId || ordemServico?.clienteId;
+    const ordemServicoRecord = ordemServico as Record<string, any> | null;
+
+    const [empresa, cliente, pagamentos, recebimento, orcamento] = await Promise.all([
+      this.empresaModel.findById(atendimentoEmpresaId).lean().exec(),
+      this.clienteModel.findById(atendimentoClienteId).lean().exec(),
+      venda ? this.pagamentoModel.find({ vendaId: venda._id }).lean().exec() : Promise.resolve([]),
       ordemServico?.recebimentoEquipamentoId
         ? this.recebimentoModel.findById(ordemServico.recebimentoEquipamentoId).lean().exec()
         : Promise.resolve(null),
@@ -158,6 +164,14 @@ export class DocumentosService {
         ? this.orcamentoModel.findById(ordemServico.orcamentoId).lean().exec()
         : Promise.resolve(null),
     ]);
+    const orcamentoAprovadoEm = orcamento
+      ? await this.getOrcamentoAprovadoEm(orcamento._id, orcamento.empresaId)
+      : null;
+    const itens = venda
+      ? await this.itensVendaModel.find({ vendaId: venda._id }).lean().exec()
+      : orcamento
+        ? await this.itensOrcamentoModel.find({ orcamentoId: orcamento._id }).lean().exec()
+        : [];
 
     const produtoIds = itens
       .filter((item) => item.tipo === 'produto' && Types.ObjectId.isValid(String(item.referenciaId)))
@@ -169,20 +183,24 @@ export class DocumentosService {
       this.produtoModel.find({ _id: { $in: produtoIds } }).lean().exec(),
       this.servicoModel.find({ _id: { $in: servicoIds } }).lean().exec(),
     ]);
-    const ordemServicoRecord = ordemServico as Record<string, any> | null;
+    const subtotal = venda?.subtotal ?? orcamento?.subtotal ?? 0;
+    const descontos = venda?.descontos ?? orcamento?.descontos ?? 0;
+    const totalAtendimento = venda?.total ?? orcamento?.total ?? 0;
+    const documentoOrigemId = venda?._id || ordemServico?._id || id;
 
-    const pdf = this.criarBase('RECIBO DO ATENDIMENTO', empresa, cliente);
-    pdf.addKeyValue('Documento', this.numeroDocumento('ATD', venda._id));
+    const pdf = this.criarBase('PDF DO ATENDIMENTO', empresa, cliente);
+    pdf.addKeyValue('Documento', this.numeroDocumento('ATD', documentoOrigemId));
     pdf.addKeyValue('Data de emissao', this.formatDate(new Date()));
     pdf.addKeyValue('Origem', ordemServico ? this.numeroDocumento('OS', ordemServico._id) : 'Venda direta');
-    pdf.addKeyValue('Status financeiro', venda.statusFinanceiro);
+    pdf.addKeyValue('Status financeiro', venda?.statusFinanceiro || 'Venda ainda nao vinculada');
     pdf.addHorizontalRule();
 
     if (ordemServico || recebimento) {
-      pdf.addSection('Servico e equipamento');
+      pdf.addSection('Resumo do servico');
       pdf.addKeyValue('Status do servico', ordemServicoRecord?.statusOperacional || '-');
       pdf.addKeyValue('Entrada', this.formatDate(ordemServicoRecord?.dataEntrada || recebimento?.dataRecebimento));
       pdf.addKeyValue('Previsao de entrega', this.formatDate(ordemServicoRecord?.dataPrevistaEntrega));
+      pdf.addKeyValue('Conclusao', this.formatDate(ordemServicoRecord?.dataConclusao));
       pdf.addKeyValue('Equipamento', recebimento ? `${recebimento.tipoEquipamento || ''} ${recebimento.marca || ''} ${recebimento.modelo || ''}`.trim() : '-');
       pdf.addKeyValue('IMEI/Serial', recebimento?.imeiOuSerial || '-');
       if (recebimento?.observacoesGerais) {
@@ -197,40 +215,55 @@ export class DocumentosService {
     }
 
     if (orcamento) {
-      pdf.addSection('Orcamento vinculado');
+      pdf.addSection(orcamento.status === 'aprovado' ? 'Orcamento aprovado' : 'Orcamento vinculado');
       pdf.addKeyValue('Codigo', this.numeroDocumento('ORC', orcamento._id));
       pdf.addKeyValue('Status', orcamento.status);
-      pdf.addKeyValue('Total aprovado', this.formatMoney(orcamento.total));
+      pdf.addKeyValue('Data de aprovacao', this.formatDate(orcamentoAprovadoEm));
+      pdf.addKeyValue('Validade original', this.formatDate(orcamento.validade));
+      pdf.addKeyValue('Valor aprovado', this.formatMoney(orcamento.total));
+      if (orcamento.observacoes) {
+        pdf.addWrapped(`Observacoes do orcamento: ${orcamento.observacoes}`);
+      }
     }
 
     pdf.addSection('Produtos e servicos');
-    pdf.addTable(
-      ['Descricao', 'Tipo', 'Qtd', 'Valor', 'Total'],
-      itens.map((item) => [
-        this.getItemDescricao(item, produtos, servicos),
-        item.tipo,
-        String(item.quantidade),
-        this.formatMoney(item.valorUnitario),
-        this.formatMoney(item.totalItem),
-      ]),
-    );
+    if (itens.length) {
+      pdf.addTable(
+        ['Descricao', 'Tipo', 'Qtd', 'Valor', 'Total'],
+        itens.map((item) => [
+          this.getItemDescricao(item, produtos, servicos),
+          item.tipo,
+          String(item.quantidade),
+          this.formatMoney(item.valorUnitario),
+          this.formatMoney(item.totalItem),
+        ]),
+      );
+    } else {
+      pdf.addWrapped('Nenhum produto ou servico informado para este atendimento ate a emissao deste documento.');
+    }
 
     pdf.addSection('Pagamento');
-    pdf.addTable(
-      ['Forma', 'Data', 'Valor'],
-      pagamentos.map((pagamento) => [
-        pagamento.formaPagamento,
-        this.formatDate(pagamento.dataPagamento),
-        this.formatMoney(pagamento.valor),
-      ]),
-    );
+    if (venda && pagamentos.length) {
+      pdf.addTable(
+        ['Forma', 'Data', 'Valor'],
+        pagamentos.map((pagamento) => [
+          pagamento.formaPagamento,
+          this.formatDate(pagamento.dataPagamento),
+          this.formatMoney(pagamento.valor),
+        ]),
+      );
+    } else if (!venda) {
+      pdf.addWrapped('Venda ainda nao vinculada a este atendimento. Os dados financeiros finais serao consolidados quando a venda for gerada.');
+    } else {
+      pdf.addWrapped('Nenhum pagamento registrado para este atendimento ate a emissao deste documento.');
+    }
     const totalPago = pagamentos.reduce((sum, pagamento) => sum + this.moneyToNumber(pagamento.valor), 0);
-    const totalVenda = this.moneyToNumber(venda.total);
-    pdf.addKeyValue('Subtotal', this.formatMoney(venda.subtotal));
-    pdf.addKeyValue('Descontos', this.formatMoney(venda.descontos));
+    const totalVenda = this.moneyToNumber(totalAtendimento);
+    pdf.addKeyValue('Subtotal', this.formatMoney(subtotal));
+    pdf.addKeyValue('Descontos', this.formatMoney(descontos));
     pdf.addKeyValue('Pago', this.formatMoney(totalPago));
     pdf.addKeyValue('Restante', this.formatMoney(Math.max(totalVenda - totalPago, 0)));
-    pdf.addHighlight('Total pago/atendimento', this.formatMoney(venda.total));
+    pdf.addHighlight(venda ? 'Total do atendimento' : 'Total previsto do atendimento', this.formatMoney(totalAtendimento));
 
     if (ordemServicoRecord?.dataEntrega || ordemServicoRecord?.assinaturaEntregaHashSha256) {
       pdf.addSection('Retirada e assinatura');
@@ -238,16 +271,17 @@ export class DocumentosService {
       pdf.addKeyValue('Documento', ordemServicoRecord.entregueParaDocumento || cliente?.cpfCnpj || '-');
       pdf.addKeyValue('Data', this.formatDate(ordemServicoRecord.dataEntrega));
       pdf.addKeyValue('Hash assinatura', ordemServicoRecord.assinaturaEntregaHashSha256 || '-');
+      pdf.addKeyValue('IP da assinatura', ordemServicoRecord.ipAssinaturaEntrega || '-');
       pdf.addSignatureBox('Assinatura do cliente/responsavel', ordemServicoRecord.assinaturaEntregaImagemBase64);
       if (ordemServicoRecord.observacoesEntrega) {
         pdf.addWrapped(ordemServicoRecord.observacoesEntrega);
       }
     }
 
-    pdf.addSection('Termos de garantia');
-    pdf.addWrapped('A garantia cobre apenas defeitos de fabricacao das pecas instaladas e servicos realizados neste atendimento.');
-    pdf.addWrapped('Nao cobre danos causados por mau uso, queda, liquidos, curto eletrico, virus, software, intervencao de terceiros ou reincidencia causada por condicoes externas ao servico executado.');
-    pdf.addWrapped('Guarde este documento para consulta de recibo, atendimento e garantia.');
+    pdf.addSection('Criterios de garantia');
+    pdf.addWrapped('A garantia se aplica exclusivamente aos produtos e servicos descritos neste atendimento, dentro dos prazos e condicoes informados pela empresa.');
+    pdf.addWrapped('A cobertura considera defeitos relacionados ao servico executado ou as pecas instaladas. Danos por queda, liquidos, mau uso, curto eletrico, intervencao de terceiros, software, virus ou condicoes externas ao servico nao sao cobertos.');
+    pdf.addWrapped('Este documento centraliza o resumo do atendimento, valores, pagamentos, garantia e aceite/assinatura quando coletados.');
 
     return pdf.build();
   }
@@ -349,6 +383,23 @@ export class DocumentosService {
 
   private getEmpresaQuery(empresaId?: string, base: Record<string, unknown> = {}) {
     return empresaId ? { ...base, empresaId } : base;
+  }
+
+  private async getOrcamentoAprovadoEm(orcamentoId: unknown, empresaId: unknown) {
+    const query: Record<string, unknown> = {
+      empresaId,
+      entidade: AUDITORIA_ENTIDADES.ORCAMENTO,
+      entidadeId: orcamentoId,
+      tipoEvento: AUDITORIA_EVENTOS.ORCAMENTO_APROVADO,
+    };
+
+    const log = await this.logEventoModel
+      .findOne(query)
+      .sort({ data: -1 })
+      .lean()
+      .exec();
+
+    return log?.data;
   }
 
   private formatDate(value: unknown) {

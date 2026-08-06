@@ -22,27 +22,7 @@ export class PortalClienteController {
     return this.portalClienteService.getPortal(token);
   }
 
-  @Get(':token/orcamentos/:orcamentoId/pdf')
-  async orcamentoPdf(
-    @Param('token') token: string,
-    @Param('orcamentoId') orcamentoId: string,
-    @Res() res: Response,
-  ) {
-    const pdf = await this.portalClienteService.gerarOrcamentoPdf(token, orcamentoId);
-    this.sendPdf(res, pdf, `orcamento-${orcamentoId}.pdf`);
-  }
-
-  @Get(':token/vendas/:vendaId/recibo.pdf')
-  async reciboPdf(
-    @Param('token') token: string,
-    @Param('vendaId') vendaId: string,
-    @Res() res: Response,
-  ) {
-    const pdf = await this.portalClienteService.gerarReciboPdf(token, vendaId);
-    this.sendPdf(res, pdf, `recibo-${vendaId}.pdf`);
-  }
-
-  @Get(':token/atendimentos/:atendimentoId/recibo.pdf')
+  @Get(':token/atendimentos/:atendimentoId/pdf')
   async atendimentoPdf(
     @Param('token') token: string,
     @Param('atendimentoId') atendimentoId: string,

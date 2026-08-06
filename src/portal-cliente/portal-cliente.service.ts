@@ -141,9 +141,11 @@ export class PortalClienteService {
       timeline,
       this.getTimelineSintetica({ orcamentos, ordensServico, vendas, garantias }),
     );
+    const orcamentoAprovadoEmPorId = this.getOrcamentosAprovadosEm(timelineCompleta);
     const portalOrcamentos = orcamentos.map((orcamento) => ({
       ...this.toPlain(orcamento),
       id: String(orcamento._id),
+      aprovadoEm: orcamentoAprovadoEmPorId.get(String(orcamento._id)),
       total: this.decimalToNumber(orcamento.total),
       subtotal: this.decimalToNumber(orcamento.subtotal),
       descontos: this.decimalToNumber(orcamento.descontos),
@@ -211,7 +213,7 @@ export class PortalClienteService {
           'Confira o equipamento no balcao antes de finalizar a entrega.',
         ]),
         politicaGarantia: this.getConfigList('PORTAL_POLITICA_GARANTIA', [
-          'Garantia valida para o servico e pecas informados no recibo.',
+          'Garantia valida para os servicos e pecas informados no PDF do atendimento.',
           'Danos por queda, liquido ou mau uso nao sao cobertos.',
         ]),
       },
@@ -253,18 +255,6 @@ export class PortalClienteService {
 
     const status = decisao === 'aprovar' ? ORCAMENTO_STATUS.APROVADO : ORCAMENTO_STATUS.REPROVADO;
     return this.orcamentosService.update(orcamentoId, { status });
-  }
-
-  async gerarOrcamentoPdf(token: string, orcamentoId: string) {
-    const payload = this.verifyToken(token);
-    await this.assertOrcamentoPertenceAoCliente(orcamentoId, payload);
-    return this.documentosService.gerarOrcamentoPdf(orcamentoId);
-  }
-
-  async gerarReciboPdf(token: string, vendaId: string) {
-    const payload = this.verifyToken(token);
-    await this.assertVendaPertenceAoCliente(vendaId, payload);
-    return this.documentosService.gerarReciboPdf(vendaId);
   }
 
   async gerarAtendimentoPdf(token: string, atendimentoId: string) {
@@ -351,38 +341,6 @@ export class PortalClienteService {
     }
 
     return `${item.tipo || 'Item'} ${String(item.referenciaId || '').slice(-6).toUpperCase()}`;
-  }
-
-  private async assertOrcamentoPertenceAoCliente(orcamentoId: string, payload: PortalTokenPayload) {
-    if (!Types.ObjectId.isValid(orcamentoId)) {
-      throw new BadRequestException('Orcamento invalido.');
-    }
-
-    const orcamento = await this.orcamentoModel.findOne({
-      _id: new Types.ObjectId(orcamentoId),
-      clienteId: new Types.ObjectId(payload.clienteId),
-      empresaId: new Types.ObjectId(payload.empresaId),
-    }).lean().exec();
-
-    if (!orcamento) {
-      throw new NotFoundException('Orcamento nao encontrado para este cliente.');
-    }
-  }
-
-  private async assertVendaPertenceAoCliente(vendaId: string, payload: PortalTokenPayload) {
-    if (!Types.ObjectId.isValid(vendaId)) {
-      throw new BadRequestException('Venda invalida.');
-    }
-
-    const venda = await this.vendaModel.findOne({
-      _id: new Types.ObjectId(vendaId),
-      clienteId: new Types.ObjectId(payload.clienteId),
-      empresaId: new Types.ObjectId(payload.empresaId),
-    }).lean().exec();
-
-    if (!venda) {
-      throw new NotFoundException('Recibo nao encontrado para este cliente.');
-    }
   }
 
   private async assertAtendimentoPertenceAoCliente(atendimentoId: string, payload: PortalTokenPayload) {
@@ -695,6 +653,21 @@ export class PortalClienteService {
       })
       .sort((a, b) => new Date(b.data || 0).getTime() - new Date(a.data || 0).getTime())
       .slice(0, 40);
+  }
+
+  private getOrcamentosAprovadosEm(timeline: any[]) {
+    const aprovados = new Map<string, unknown>();
+
+    timeline
+      .filter((item) => item.tipoEvento === AUDITORIA_EVENTOS.ORCAMENTO_APROVADO)
+      .forEach((item) => {
+        const id = String(item.entidadeId || '');
+        if (id && !aprovados.has(id)) {
+          aprovados.set(id, item.data);
+        }
+      });
+
+    return aprovados;
   }
 
   private logPertenceAoCliente(

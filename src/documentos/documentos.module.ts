@@ -12,6 +12,7 @@ import { Orcamento, OrcamentoSchema } from '../orcamentos/schemas/orcamento.sche
 import { OrdemServico, OrdemServicoSchema } from '../ordens-servico/schemas/ordem-servico.schema';
 import { RecebimentoEquipamento, RecebimentoEquipamentoSchema } from '../recebimento/recebimento-equipamento/recebimento-equipamento.schema';
 import { TermosRecebimento, TermosRecebimentoSchema } from '../recebimento/termos/termos-recebimento.schema';
+import { LogEvento, LogEventoSchema } from '../auditoria/schemas/log-evento.schema';
 import { DocumentosController } from './documentos.controller';
 import { DocumentosService } from './documentos.service';
 
@@ -30,6 +31,7 @@ import { DocumentosService } from './documentos.service';
       { name: OrdemServico.name, schema: OrdemServicoSchema },
       { name: RecebimentoEquipamento.name, schema: RecebimentoEquipamentoSchema },
       { name: TermosRecebimento.name, schema: TermosRecebimentoSchema },
+      { name: LogEvento.name, schema: LogEventoSchema },
     ]),
   ],
   controllers: [DocumentosController],
