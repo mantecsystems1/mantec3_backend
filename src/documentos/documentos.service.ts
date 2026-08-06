@@ -17,6 +17,28 @@ import { LogEvento, LogEventoDocument } from '../auditoria/schemas/log-evento.sc
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 import { SimplePdfBuilder } from './simple-pdf';
 
+const statusLabel: Record<string, string> = {
+  rascunho: 'Em preparação',
+  enviado: 'Aguardando resposta',
+  aprovado: 'Aprovado',
+  reprovado: 'Reprovado',
+  rejeitado: 'Reprovado',
+  cancelado: 'Cancelado',
+  expirado: 'Expirado',
+  entrada: 'Entrada registrada',
+  aberta: 'Entrada registrada',
+  diagnostico: 'Em diagnóstico',
+  em_diagnostico: 'Em diagnóstico',
+  aguardando_peca: 'Aguardando peça',
+  aguardando_aprovacao: 'Aguardando aprovação',
+  em_reparo: 'Serviço em execução',
+  em_execucao: 'Serviço em execução',
+  pronto: 'Disponível para retirada',
+  entregue: 'Entregue',
+  concluida: 'Disponível para retirada',
+  cancelada: 'Cancelada',
+};
+
 @Injectable()
 export class DocumentosService {
   constructor(
@@ -37,7 +59,7 @@ export class DocumentosService {
 
   async gerarOrcamentoPdf(id: string, empresaId?: string) {
     const orcamento = await this.orcamentoModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec();
-    if (!orcamento) throw new NotFoundException('Orcamento nao encontrado.');
+    if (!orcamento) throw new NotFoundException('Orçamento não encontrado.');
 
     const [empresa, cliente, itens] = await Promise.all([
       this.empresaModel.findById(orcamento.empresaId).lean().exec(),
@@ -45,15 +67,16 @@ export class DocumentosService {
       this.itensOrcamentoModel.find({ orcamentoId: orcamento._id }).lean().exec(),
     ]);
 
-    const pdf = this.criarBase('ORCAMENTO', empresa, cliente);
+    const pdf = this.criarBase('Orçamento', empresa, cliente);
     pdf.addKeyValue('Documento', this.numeroDocumento('ORC', orcamento._id));
     pdf.addKeyValue('Status', orcamento.status);
     const orcamentoRecord = orcamento as unknown as Record<string, unknown>;
-    pdf.addKeyValue('Emissao', this.formatDate(orcamentoRecord.criadoEm ?? new Date()));
+    pdf.addKeyValue('Emissão', this.formatDate(orcamentoRecord.criadoEm ?? new Date()));
     pdf.addKeyValue('Validade', this.formatDate(orcamento.validade));
     pdf.addSection('Itens');
     pdf.addTable(
-      ['Tipo', 'Quantidade', 'Valor unitario', 'Total'],
+      ['Tipo', 'Quantidade', 'Valor unitário', 'Total'],
+      [180, 100, 110, 121],
       itens.map((item) => [
         item.tipo,
         String(item.quantidade),
@@ -66,7 +89,7 @@ export class DocumentosService {
     pdf.addKeyValue('Descontos', this.formatMoney(orcamento.descontos));
     pdf.addKeyValue('Total', this.formatMoney(orcamento.total));
     if (orcamento.observacoes) {
-      pdf.addSection('Observacoes');
+      pdf.addSection('Observações');
       pdf.addWrapped(String(orcamento.observacoes));
     }
     pdf.addSection('Aceite');
@@ -76,7 +99,7 @@ export class DocumentosService {
 
   async gerarReciboPdf(id: string, empresaId?: string) {
     const venda = await this.vendaModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec();
-    if (!venda) throw new NotFoundException('Venda nao encontrada.');
+    if (!venda) throw new NotFoundException('Venda não encontrada.');
 
     const [empresa, cliente, itens, pagamentos, ordemServicoEntrega] = await Promise.all([
       this.empresaModel.findById(venda.empresaId).lean().exec(),
@@ -88,13 +111,14 @@ export class DocumentosService {
         : Promise.resolve(null),
     ]);
 
-    const pdf = this.criarBase('RECIBO', empresa, cliente);
+    const pdf = this.criarBase('Recibo', empresa, cliente);
     pdf.addKeyValue('Documento', this.numeroDocumento('REC', venda._id));
     pdf.addKeyValue('Origem', venda.origemTipo);
     pdf.addKeyValue('Status financeiro', venda.statusFinanceiro);
     pdf.addSection('Itens');
     pdf.addTable(
-      ['Tipo', 'Quantidade', 'Valor unitario', 'Total'],
+      ['Tipo', 'Quantidade', 'Valor unitário', 'Total'],
+      [180, 100, 110, 121],
       itens.map((item) => [
         item.tipo,
         String(item.quantidade),
@@ -105,6 +129,7 @@ export class DocumentosService {
     pdf.addSection('Pagamentos');
     pdf.addTable(
       ['Forma', 'Data', 'Valor'],
+      [250, 120, 141],
       pagamentos.map((pagamento) => [
         pagamento.formaPagamento,
         this.formatDate(pagamento.dataPagamento),
@@ -142,7 +167,7 @@ export class DocumentosService {
         })).lean().exec();
 
     if (!venda && !ordemServico) {
-      throw new NotFoundException('Atendimento nao encontrado.');
+      throw new NotFoundException('Atendimento não encontrado.');
     }
 
     if (!ordemServico && venda?.origemTipo === 'ordem_servico' && venda.origemId) {
@@ -188,48 +213,49 @@ export class DocumentosService {
     const totalAtendimento = venda?.total ?? orcamento?.total ?? 0;
     const documentoOrigemId = venda?._id || ordemServico?._id || id;
 
-    const pdf = this.criarBase('PDF DO ATENDIMENTO', empresa, cliente);
+    const pdf = this.criarBase('Resumo do Atendimento', empresa, cliente);
     pdf.addKeyValue('Documento', this.numeroDocumento('ATD', documentoOrigemId));
-    pdf.addKeyValue('Data de emissao', this.formatDate(new Date()));
+    pdf.addKeyValue('Data de emissão', this.formatDate(new Date()));
     pdf.addKeyValue('Origem', ordemServico ? this.numeroDocumento('OS', ordemServico._id) : 'Venda direta');
-    pdf.addKeyValue('Status financeiro', venda?.statusFinanceiro || 'Venda ainda nao vinculada');
+    pdf.addKeyValue('Status financeiro', venda?.statusFinanceiro || 'Venda ainda não vinculada');
     pdf.addHorizontalRule();
 
     if (ordemServico || recebimento) {
-      pdf.addSection('Resumo do servico');
-      pdf.addKeyValue('Status do servico', ordemServicoRecord?.statusOperacional || '-');
+      pdf.addSection('Resumo do serviço');
+      pdf.addKeyValue('Status do serviço', statusLabel[ordemServicoRecord?.statusOperacional] || ordemServicoRecord?.statusOperacional || '-');
       pdf.addKeyValue('Entrada', this.formatDate(ordemServicoRecord?.dataEntrada || recebimento?.dataRecebimento));
-      pdf.addKeyValue('Previsao de entrega', this.formatDate(ordemServicoRecord?.dataPrevistaEntrega));
-      pdf.addKeyValue('Conclusao', this.formatDate(ordemServicoRecord?.dataConclusao));
+      pdf.addKeyValue('Previsão de entrega', this.formatDate(ordemServicoRecord?.dataPrevistaEntrega));
+      pdf.addKeyValue('Conclusão', this.formatDate(ordemServicoRecord?.dataConclusao));
       pdf.addKeyValue('Equipamento', recebimento ? `${recebimento.tipoEquipamento || ''} ${recebimento.marca || ''} ${recebimento.modelo || ''}`.trim() : '-');
       pdf.addKeyValue('IMEI/Serial', recebimento?.imeiOuSerial || '-');
       if (recebimento?.observacoesGerais) {
         pdf.addWrapped(`Defeito relatado: ${recebimento.observacoesGerais}`);
       }
       if (ordemServicoRecord?.diagnosticoTecnico) {
-        pdf.addWrapped(`Diagnostico: ${ordemServicoRecord.diagnosticoTecnico}`);
+        pdf.addWrapped(`Diagnóstico: ${ordemServicoRecord.diagnosticoTecnico}`);
       }
       if (ordemServicoRecord?.solucaoAplicada) {
-        pdf.addWrapped(`Solucao aplicada: ${ordemServicoRecord.solucaoAplicada}`);
+        pdf.addWrapped(`Solução aplicada: ${ordemServicoRecord.solucaoAplicada}`);
       }
     }
 
     if (orcamento) {
-      pdf.addSection(orcamento.status === 'aprovado' ? 'Orcamento aprovado' : 'Orcamento vinculado');
-      pdf.addKeyValue('Codigo', this.numeroDocumento('ORC', orcamento._id));
+      pdf.addSection(orcamento.status === 'aprovado' ? 'Orçamento aprovado' : 'Orçamento vinculado');
+      pdf.addKeyValue('Código', this.numeroDocumento('ORC', orcamento._id));
       pdf.addKeyValue('Status', orcamento.status);
-      pdf.addKeyValue('Data de aprovacao', this.formatDate(orcamentoAprovadoEm));
+      pdf.addKeyValue('Data de aprovação', this.formatDate(orcamentoAprovadoEm));
       pdf.addKeyValue('Validade original', this.formatDate(orcamento.validade));
       pdf.addKeyValue('Valor aprovado', this.formatMoney(orcamento.total));
       if (orcamento.observacoes) {
-        pdf.addWrapped(`Observacoes do orcamento: ${orcamento.observacoes}`);
+        pdf.addWrapped(`Observações do orçamento: ${orcamento.observacoes}`);
       }
     }
 
-    pdf.addSection('Produtos e servicos');
+    pdf.addSection('Produtos e serviços');
     if (itens.length) {
       pdf.addTable(
-        ['Descricao', 'Tipo', 'Qtd', 'Valor', 'Total'],
+        ['Descrição', 'Tipo', 'Qtd', 'Valor', 'Total'],
+        [200, 85, 45, 90, 91],
         itens.map((item) => [
           this.getItemDescricao(item, produtos, servicos),
           item.tipo,
@@ -239,13 +265,14 @@ export class DocumentosService {
         ]),
       );
     } else {
-      pdf.addWrapped('Nenhum produto ou servico informado para este atendimento ate a emissao deste documento.');
+      pdf.addWrapped('Nenhum produto ou serviço informado para este atendimento até a emissão deste documento.');
     }
 
     pdf.addSection('Pagamento');
     if (venda && pagamentos.length) {
       pdf.addTable(
         ['Forma', 'Data', 'Valor'],
+        [250, 120, 141],
         pagamentos.map((pagamento) => [
           pagamento.formaPagamento,
           this.formatDate(pagamento.dataPagamento),
@@ -253,9 +280,9 @@ export class DocumentosService {
         ]),
       );
     } else if (!venda) {
-      pdf.addWrapped('Venda ainda nao vinculada a este atendimento. Os dados financeiros finais serao consolidados quando a venda for gerada.');
+      pdf.addWrapped('Venda ainda não vinculada a este atendimento. Os dados financeiros finais serão consolidados quando a venda for gerada.');
     } else {
-      pdf.addWrapped('Nenhum pagamento registrado para este atendimento ate a emissao deste documento.');
+      pdf.addWrapped('Nenhum pagamento registrado para este atendimento até a emissão deste documento.');
     }
     const totalPago = pagamentos.reduce((sum, pagamento) => sum + this.moneyToNumber(pagamento.valor), 0);
     const totalVenda = this.moneyToNumber(totalAtendimento);
@@ -272,15 +299,15 @@ export class DocumentosService {
       pdf.addKeyValue('Data', this.formatDate(ordemServicoRecord.dataEntrega));
       pdf.addKeyValue('Hash assinatura', ordemServicoRecord.assinaturaEntregaHashSha256 || '-');
       pdf.addKeyValue('IP da assinatura', ordemServicoRecord.ipAssinaturaEntrega || '-');
-      pdf.addSignatureBox('Assinatura do cliente/responsavel', ordemServicoRecord.assinaturaEntregaImagemBase64);
+      pdf.addSignatureBox('Assinatura do cliente/responsável', ordemServicoRecord.assinaturaEntregaImagemBase64);
       if (ordemServicoRecord.observacoesEntrega) {
         pdf.addWrapped(ordemServicoRecord.observacoesEntrega);
       }
     }
 
-    pdf.addSection('Criterios de garantia');
-    pdf.addWrapped('A garantia se aplica exclusivamente aos produtos e servicos descritos neste atendimento, dentro dos prazos e condicoes informados pela empresa.');
-    pdf.addWrapped('A cobertura considera defeitos relacionados ao servico executado ou as pecas instaladas. Danos por queda, liquidos, mau uso, curto eletrico, intervencao de terceiros, software, virus ou condicoes externas ao servico nao sao cobertos.');
+    pdf.addSection('Critérios de garantia');
+    pdf.addWrapped('A garantia se aplica exclusivamente aos produtos e serviços descritos neste atendimento, dentro dos prazos e condições informados pela empresa.');
+    pdf.addWrapped('A cobertura considera defeitos relacionados ao serviço executado ou às peças instaladas. Danos por queda, líquidos, mau uso, curto elétrico, intervenção de terceiros, software, vírus ou condições externas ao serviço não são cobertos.');
     pdf.addWrapped('Este documento centraliza o resumo do atendimento, valores, pagamentos, garantia e aceite/assinatura quando coletados.');
 
     return pdf.build();
@@ -288,7 +315,7 @@ export class DocumentosService {
 
   async gerarTermoPdf(id: string, empresaId?: string) {
     const recebimento = await this.recebimentoModel.findOne(this.getEmpresaQuery(empresaId, { _id: id })).lean().exec();
-    if (!recebimento) throw new NotFoundException('Recebimento nao encontrado.');
+    if (!recebimento) throw new NotFoundException('Recebimento não encontrado.');
 
     const [empresa, cliente, termo] = await Promise.all([
       this.empresaModel.findById(recebimento.empresaId).lean().exec(),
@@ -296,23 +323,23 @@ export class DocumentosService {
       this.termoModel.findOne({ recebimentoEquipamentoId: recebimento._id }).lean().exec(),
     ]);
 
-    const pdf = this.criarBase('TERMO DE RECEBIMENTO', empresa, cliente);
+    const pdf = this.criarBase('Termo de Recebimento', empresa, cliente);
     pdf.addKeyValue('Documento', this.numeroDocumento('TRM', recebimento._id));
     pdf.addKeyValue('Equipamento', `${recebimento.tipoEquipamento} ${recebimento.marca} ${recebimento.modelo}`);
     pdf.addKeyValue('IMEI/Serial', recebimento.imeiOuSerial || '-');
     pdf.addKeyValue('Data de recebimento', this.formatDate(recebimento.dataRecebimento));
     pdf.addKeyValue('Status', recebimento.status);
     if (recebimento.observacoesGerais) {
-      pdf.addSection('Observacoes de entrada');
+      pdf.addSection('Observações de entrada');
       pdf.addWrapped(recebimento.observacoesGerais);
     }
     pdf.addSection('Termo');
-    pdf.addWrapped(termo?.texto || 'Cliente declara estar ciente das condicoes de recebimento do equipamento.');
+    pdf.addWrapped(termo?.texto || 'Cliente declara estar ciente das condições de recebimento do equipamento.');
     pdf.addSection('Assinatura');
-    pdf.addKeyValue('Assinado', termo?.assinado ? 'Sim' : 'Nao');
-    pdf.addKeyValue('Metodo', this.formatMetodoAssinatura(termo?.metodoAssinatura));
-    pdf.addKeyValue('Signatario', termo?.signatarioNome || cliente?.nome || '-');
-    pdf.addKeyValue('Documento do signatario', termo?.signatarioDocumento || cliente?.cpfCnpj || '-');
+    pdf.addKeyValue('Assinado', termo?.assinado ? 'Sim' : 'Não');
+    pdf.addKeyValue('Método', this.formatMetodoAssinatura(termo?.metodoAssinatura));
+    pdf.addKeyValue('Signatário', termo?.signatarioNome || cliente?.nome || '-');
+    pdf.addKeyValue('Documento do signatário', termo?.signatarioDocumento || cliente?.cpfCnpj || '-');
     pdf.addKeyValue('Data', this.formatDate(termo?.dataAssinatura));
     pdf.addKeyValue('IP', termo?.ipAssinatura || '-');
     pdf.addKeyValue('Hash do termo', termo?.termoHashSha256 || '-');
@@ -322,8 +349,8 @@ export class DocumentosService {
     }
     pdf.addWrapped(
       termo?.assinaturaImagemBase64
-        ? 'Assinatura grafica coletada no recebimento e armazenada no sistema com hash SHA-256.'
-        : 'Assinatura grafica nao coletada. Aceite registrado pelos metadados acima.',
+        ? 'Assinatura gráfica coletada no recebimento e armazenada no sistema com hash SHA-256.'
+        : 'Assinatura gráfica não coletada. Aceite registrado pelos metadados acima.',
     );
     return pdf.build();
   }
@@ -331,15 +358,7 @@ export class DocumentosService {
   private criarBase(titulo: string, empresa: any, cliente: any) {
     const pdf = new SimplePdfBuilder();
     pdf.addTitle(titulo);
-    pdf.addHorizontalRule();
-    pdf.addSection('Empresa');
-    pdf.addKeyValue('Nome', empresa?.nomeFantasia || empresa?.razaoSocial || '-');
-    pdf.addKeyValue('CNPJ', empresa?.cnpj || '-');
-    pdf.addKeyValue('Contato', `${empresa?.telefone || '-'} | ${empresa?.email || '-'}`);
-    pdf.addSection('Cliente');
-    pdf.addKeyValue('Nome', cliente?.nome || '-');
-    pdf.addKeyValue('Documento', cliente?.cpfCnpj || '-');
-    pdf.addKeyValue('Contato', `${cliente?.telefone || '-'} | ${cliente?.email || '-'}`);
+    pdf.addHeaderBlock(empresa, cliente);
     return pdf;
   }
 
@@ -409,7 +428,7 @@ export class DocumentosService {
   private formatMetodoAssinatura(value?: string) {
     const labels: Record<string, string> = {
       assinatura_tela: 'Assinatura na tela',
-      aceite_eletronico: 'Aceite eletronico',
+      aceite_eletronico: 'Aceite eletrônico',
       digital: 'Digital',
       manual: 'Manual',
     };
