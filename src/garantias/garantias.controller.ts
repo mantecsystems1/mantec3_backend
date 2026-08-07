@@ -24,6 +24,18 @@ export class GarantiasController {
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.GARANTIA_ABRIR)
   createGarantia(@Body() createGarantiaDto: CreateGarantiaDto, @CurrentUser() user?: CurrentUserPayload) {
+    console.log('[Garantia][Controller] POST /garantias body recebido', {
+      empresaId: createGarantiaDto.empresaId,
+      clienteId: createGarantiaDto.clienteId,
+      vendaId: createGarantiaDto.vendaId,
+      ordemServicoId: createGarantiaDto.ordemServicoId,
+      produtoId: createGarantiaDto.produtoId,
+      fornecedorId: createGarantiaDto.fornecedorId,
+      quantidade: createGarantiaDto.quantidade,
+      status: createGarantiaDto.status,
+      motivoLength: createGarantiaDto.motivo?.length ?? 0,
+      actorId: user?.sub,
+    });
     return this.garantiasService.createGarantia(createGarantiaDto, user?.sub);
   }
 

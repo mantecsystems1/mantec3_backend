@@ -35,16 +35,43 @@ export class GarantiasService {
   async createGarantia(createGarantiaDto: CreateGarantiaDto, actorId?: string) {
     const status = createGarantiaDto.status || GARANTIA_STATUS.ABERTA;
 
+    console.log('[Garantia][Service] createGarantia entrada', {
+      empresaId: createGarantiaDto.empresaId,
+      clienteId: createGarantiaDto.clienteId,
+      vendaId: createGarantiaDto.vendaId,
+      ordemServicoId: createGarantiaDto.ordemServicoId,
+      produtoId: createGarantiaDto.produtoId,
+      fornecedorIdInformado: createGarantiaDto.fornecedorId,
+      quantidade: createGarantiaDto.quantidade,
+      status,
+      actorId,
+    });
+
     if (!isGarantiaStatus(status)) {
       throw new BadRequestException(`Status de garantia invalido: ${status}`);
     }
 
-    const fornecedorId = createGarantiaDto.fornecedorId || await this.inferFornecedorPorProduto(
-      createGarantiaDto.produtoId,
-      createGarantiaDto.empresaId,
-    );
+    const fornecedorIdInformado = createGarantiaDto.fornecedorId?.trim();
+    const fornecedorIdInferido = fornecedorIdInformado
+      ? ''
+      : await this.inferFornecedorPorProduto(createGarantiaDto.produtoId, createGarantiaDto.empresaId);
+    const fornecedorId = fornecedorIdInformado || fornecedorIdInferido;
+
+    console.log('[Garantia][Service] fornecedor resolvido', {
+      fornecedorIdInformado,
+      fornecedorIdInferido,
+      fornecedorIdFinal: fornecedorId,
+      produtoId: createGarantiaDto.produtoId,
+      empresaId: createGarantiaDto.empresaId,
+    });
 
     if (!fornecedorId) {
+      console.warn('[Garantia][Service] fornecedor ausente ao cadastrar garantia', {
+        bodyKeys: Object.keys(createGarantiaDto || {}),
+        empresaId: createGarantiaDto.empresaId,
+        produtoId: createGarantiaDto.produtoId,
+        vendaId: createGarantiaDto.vendaId,
+      });
       throw new BadRequestException({
         field: 'fornecedorId',
         message: 'Selecione o fornecedor da garantia. Nao foi possivel inferir pelo historico de compras do produto.',
@@ -77,6 +104,13 @@ export class GarantiasService {
   }
 
   private async inferFornecedorPorProduto(produtoId: string, empresaId: string) {
+    console.log('[Garantia][Service] inferFornecedorPorProduto inicio', {
+      produtoId,
+      empresaId,
+      produtoIdValido: Types.ObjectId.isValid(produtoId),
+      empresaIdValido: Types.ObjectId.isValid(empresaId),
+    });
+
     if (!Types.ObjectId.isValid(produtoId) || !Types.ObjectId.isValid(empresaId)) {
       return '';
     }
@@ -87,6 +121,11 @@ export class GarantiasService {
       .lean()
       .exec();
 
+    console.log('[Garantia][Service] itens de compra encontrados para produto', {
+      produtoId,
+      totalItens: itens.length,
+    });
+
     for (const item of itens) {
       const pedido = await this.pedidosCompraModel
         .findOne({
@@ -95,6 +134,13 @@ export class GarantiasService {
         })
         .lean()
         .exec();
+
+      console.log('[Garantia][Service] pedido candidato para inferencia', {
+        itemPedidoCompraId: String(item._id),
+        pedidoCompraId: String(item.pedidoCompraId),
+        pedidoEncontrado: Boolean(pedido),
+        fornecedorId: pedido?.fornecedorId ? String(pedido.fornecedorId) : '',
+      });
 
       if (pedido?.fornecedorId) {
         return String(pedido.fornecedorId);
