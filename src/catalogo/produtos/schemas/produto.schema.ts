@@ -17,6 +17,21 @@ export class Produto {
   @Prop()
   codigoInterno: string;
 
+  @Prop({ index: true })
+  tipoProduto?: string;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'AparelhoModelo' })
+  aparelhoModeloId?: Types.ObjectId;
+
+  @Prop()
+  qualidade?: string;
+
+  @Prop()
+  temAro?: string;
+
+  @Prop()
+  cor?: string;
+
   @Prop({ type: MongooseSchema.Types.Decimal128 })
   precoVenda: Types.Decimal128;
 

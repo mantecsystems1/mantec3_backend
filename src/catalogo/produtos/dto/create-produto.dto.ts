@@ -16,6 +16,26 @@ export class CreateProdutoDto {
   codigoInterno?: string;
 
   @IsOptional()
+  @IsString()
+  tipoProduto?: string;
+
+  @IsOptional()
+  @IsString()
+  aparelhoModeloId?: string;
+
+  @IsOptional()
+  @IsString()
+  qualidade?: string;
+
+  @IsOptional()
+  @IsString()
+  temAro?: string;
+
+  @IsOptional()
+  @IsString()
+  cor?: string;
+
+  @IsOptional()
   @IsNumber()
   precoVenda?: number;
 

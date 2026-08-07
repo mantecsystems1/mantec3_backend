@@ -18,11 +18,11 @@ export class ProdutosService {
   }
 
   findAll() {
-    return this.produtoModel.find().exec();
+    return this.produtoModel.find().populate('aparelhoModeloId', 'marca modelo aliases').exec();
   }
 
   findOne(id: string) {
-    return this.produtoModel.findById(id).exec();
+    return this.produtoModel.findById(id).populate('aparelhoModeloId', 'marca modelo aliases').exec();
   }
 
   update(id: string, updateProdutoDto: UpdateProdutoDto) {
@@ -49,6 +49,12 @@ export class ProdutosService {
 
     if (typeof produtoData.fotoTamanhoBytes === 'string') {
       produtoData.fotoTamanhoBytes = Number(produtoData.fotoTamanhoBytes);
+    }
+
+    if (this.hasValue(dto.aparelhoModeloId)) {
+      produtoData.aparelhoModeloId = dto.aparelhoModeloId;
+    } else {
+      delete produtoData.aparelhoModeloId;
     }
 
     if (typeof dto.fotoUrl === 'string') {

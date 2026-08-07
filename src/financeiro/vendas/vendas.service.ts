@@ -283,7 +283,7 @@ export class VendasService {
             referenciaDetails = await this.vendaModel.db
               .model('Produto')
               .findById(item.referenciaId)
-              .select('nome codigoInterno')
+              .select('nome codigoInterno precoVenda tipoProduto aparelhoModeloId qualidade temAro cor')
               .lean()
               .exec();
           } else if (item.tipo === 'servico') {
