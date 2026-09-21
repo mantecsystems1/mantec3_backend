@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema } from 'mongoose';
-import { Empresa } from 'src/core/empresa/schemas/empresa.schema';
+import { Empresa } from '../../core/empresa/schemas/empresa.schema';
 
 export type UsuarioDocument = Usuario & Document;
 
@@ -23,6 +23,9 @@ export class Usuario {
 
   @Prop({ default: 'tecnico' })
   perfil: string;
+
+  @Prop({ default: 0 })
+  tokenVersion: number;
 
   criadoEm: Date;
 }

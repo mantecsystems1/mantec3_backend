@@ -1,0 +1,61 @@
+{
+  "verifiedAt": "2026-09-21T20:07:28.076190+00:00",
+  "health": {
+    "status": "ok",
+    "database": "connected",
+    "timestamp": "2026-09-21T20:07:28.016Z"
+  },
+  "backup": {
+    "file": "/backup/mantec-20260921T200531Z.archive.gz",
+    "sha256": "9bcc856564d411197e63e5b0fbe37cc63b6f4ee15744f7fddd156d74ae0b9229",
+    "bytes": 122468,
+    "restoredVersion": "7.0.43",
+    "validation": true,
+    "countsAndIndexesMatch": true,
+    "collectionCount": 44,
+    "documents": 3496,
+    "indexes": 89
+  },
+  "metrics": {
+    "mantec_mongo_up": "1",
+    "mantec_mongo_primary_available": "1",
+    "mantec_mongo_healthy_data_members": "1",
+    "mantec_mongo_connections": "19",
+    "mantec_mongo_resident_memory_bytes": "193986560",
+    "mantec_backup_last_success_seconds": "1790021133",
+    "mantec_backup_disk_available_bytes": "55296274432",
+    "mantec_backup_disk_total_bytes": "233571696640",
+    "mantec_monitor_last_collection_seconds": "1790021234.809"
+  },
+  "services": [
+    {
+      "name": "mantec3_mongo",
+      "image": "mongo:7.0.43@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca",
+      "replicas": 1
+    },
+    {
+      "name": "mantec3_mantec3",
+      "image": "mantecsystems/mantec3-back:da6da5410721a366cbbadf0f66ca35a27ac36261@sha256:b0c9ab7678eb36460ff556a766a5abce5ecac63b060bcd7326837024476056ee",
+      "replicas": 1
+    },
+    {
+      "name": "mantec3_mongo-backup",
+      "image": "mongo:7.0.43@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca",
+      "replicas": 1
+    },
+    {
+      "name": "mantec3_mongo-monitor",
+      "image": "mantecsystems/mantec3-back:da6da5410721a366cbbadf0f66ca35a27ac36261@sha256:b0c9ab7678eb36460ff556a766a5abce5ecac63b060bcd7326837024476056ee",
+      "replicas": 1
+    }
+  ],
+  "fcv": "7.0",
+  "securityTest": "AUTHENTICATION_AND_LEAST_PRIVILEGE_OK",
+  "transactionTest": "TRANSACTIONS_COMMIT_ABORT_OK",
+  "hardware": {
+    "node1": "mongod 7 exit 132",
+    "node2": "MongoDB 7.0.43 running",
+    "node3": "mongod 7 exit 132",
+    "node4": "mongod 7.0.43 executable, deployment not tested"
+  }
+}

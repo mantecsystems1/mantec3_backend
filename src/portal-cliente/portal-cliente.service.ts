@@ -257,13 +257,13 @@ export class PortalClienteService {
       throw new BadRequestException('Apenas orcamento enviado pode ser decidido pelo cliente.');
     }
 
-    if (orcamento.validade && new Date(orcamento.validade).getTime() < Date.now()) {
-      await this.orcamentosService.update(orcamentoId, { status: ORCAMENTO_STATUS.EXPIRADO });
+    if (orcamento.validade && new Date(orcamento.validade).toISOString().slice(0, 10) < new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())) {
+      await this.orcamentosService.update(orcamentoId, { status: ORCAMENTO_STATUS.EXPIRADO }, payload.empresaId);
       throw new BadRequestException('Orcamento expirado.');
     }
 
     const status = decisao === 'aprovar' ? ORCAMENTO_STATUS.APROVADO : ORCAMENTO_STATUS.REPROVADO;
-    return this.orcamentosService.update(orcamentoId, { status });
+    return this.orcamentosService.update(orcamentoId, { status }, payload.empresaId);
   }
 
   async gerarAtendimentoPdf(token: string, atendimentoId: string) {

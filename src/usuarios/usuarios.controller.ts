@@ -24,14 +24,14 @@ export class UsuariosController {
 
   @Post()
   @RequireEvento(EVENTOS_NEGOCIO.USUARIO_GERENCIAR)
-  create(@Body() createUsuarioDto: CreateUsuarioDto) {
-    return this.usuariosService.create(createUsuarioDto);
+  create(@Body() createUsuarioDto: CreateUsuarioDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.usuariosService.create(createUsuarioDto, user);
   }
 
   @Get()
   @RequireEvento(EVENTOS_NEGOCIO.USUARIO_CONSULTAR)
-  findAll() {
-    return this.usuariosService.findAll();
+  findAll(@CurrentUser() user: CurrentUserPayload) {
+    return this.usuariosService.findAll(user);
   }
 
   @Get('tecnicos')
@@ -42,19 +42,19 @@ export class UsuariosController {
 
   @Get(':id')
   @RequireEvento(EVENTOS_NEGOCIO.USUARIO_CONSULTAR)
-  findOne(@Param('id') id: string) {
-    return this.usuariosService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.usuariosService.findOne(id, user);
   }
 
   @Patch(':id')
   @RequireEvento(EVENTOS_NEGOCIO.USUARIO_GERENCIAR)
-  update(@Param('id') id: string, @Body() updateUsuarioDto: UpdateUsuarioDto) {
-    return this.usuariosService.update(id, updateUsuarioDto);
+  update(@Param('id') id: string, @Body() updateUsuarioDto: UpdateUsuarioDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.usuariosService.update(id, updateUsuarioDto, user);
   }
 
   @Delete(':id')
   @RequireEvento(EVENTOS_NEGOCIO.USUARIO_GERENCIAR)
-  remove(@Param('id') id: string) {
-    return this.usuariosService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.usuariosService.remove(id, user);
   }
 }

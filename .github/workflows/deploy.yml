@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Instalar dependencias
@@ -81,10 +81,10 @@ jobs:
 
       - name: Forcar backend para imagem do commit
         run: |
-          services="$(docker stack services mantec3 --format '{{.Name}} {{.Image}}' | awk -v repo="${IMAGE_REPO}" '$2 ~ "^" repo {print $1}')"
+          services="$(docker stack services mantec3 --format '{{.Name}} {{.Image}}' | awk -v repo="${IMAGE_REPO}" '$1 == "mantec3_mantec3" && $2 ~ "^" repo {print $1}')"
 
           if [ -z "$services" ]; then
-            echo "Nenhum servico da stack mantec3 usa a imagem ${IMAGE_REPO}."
+            echo "O servico mantec3_mantec3 nao foi encontrado com a imagem ${IMAGE_REPO}."
             docker stack services mantec3
             exit 1
           fi
@@ -101,7 +101,7 @@ jobs:
 
       - name: Verificar imagem em execucao
         run: |
-          services="$(docker stack services mantec3 --format '{{.Name}} {{.Image}}' | awk -v repo="${IMAGE_REPO}" '$2 ~ "^" repo {print $1}')"
+          services="$(docker stack services mantec3 --format '{{.Name}} {{.Image}}' | awk -v repo="${IMAGE_REPO}" '$1 == "mantec3_mantec3" && $2 ~ "^" repo {print $1}')"
 
           for service in $services; do
             docker service inspect "$service" --format 'service={{.Spec.Name}} image={{.Spec.TaskTemplate.ContainerSpec.Image}}'

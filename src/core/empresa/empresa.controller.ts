@@ -1,3 +1,4 @@
+import { isPlatformAdmin, requirePlatformAdmin, tenantFilter } from '../../common/security/tenant-access';
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { EmpresaService } from './empresa.service';
 import { CreateEmpresaDto } from './dto/create-empresa.dto';
@@ -15,31 +16,37 @@ export class EmpresaController {
 
   @Post()
   @RequireEvento(EVENTOS_NEGOCIO.EMPRESA_GERENCIAR)
-  create(@Body() dto: CreateEmpresaDto) {
+  create(@Body() dto: CreateEmpresaDto, @CurrentUser() user: CurrentUserPayload) {
+    requirePlatformAdmin(user);
     return this.empresaService.create(dto);
   }
 
   @Get()
   @RequireEvento(EVENTOS_NEGOCIO.EMPRESA_CONSULTAR)
-  findAll() {
-    return this.empresaService.findAll();
+  findAll(@CurrentUser() user: CurrentUserPayload) {
+    tenantFilter(user);
+    return this.empresaService.findAll(isPlatformAdmin(user) ? undefined : user.empresaId);
   }
 
   @Get(':id')
   @RequireEvento(EVENTOS_NEGOCIO.EMPRESA_CONSULTAR)
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    tenantFilter(user);
+    if (!isPlatformAdmin(user) && id !== user.empresaId) requirePlatformAdmin(user);
     return this.empresaService.findOne(id);
   }
 
   @Patch(':id')
   @RequireEvento(EVENTOS_NEGOCIO.EMPRESA_GERENCIAR)
-  update(@Param('id') id: string, @Body() dto: UpdateEmpresaDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateEmpresaDto, @CurrentUser() user: CurrentUserPayload) {
+    requirePlatformAdmin(user);
     return this.empresaService.update(id, dto);
   }
 
   @Delete(':id')
   @RequireEvento(EVENTOS_NEGOCIO.EMPRESA_GERENCIAR)
   remove(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
+    requirePlatformAdmin(user);
     return this.empresaService.remove(id, user?.id || user?._id || user?.sub);
   }
 }

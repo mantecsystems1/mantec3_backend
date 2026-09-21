@@ -1,6 +1,10 @@
-import { IsString, IsEmail, IsMongoId, IsOptional } from 'class-validator';
+import { IsBoolean, IsString, IsEmail, IsMongoId, IsOptional } from 'class-validator';
 
 export class UpdateUsuarioDto {
+  @IsBoolean()
+  @IsOptional()
+  ativo?: boolean;
+
   @IsMongoId()
   @IsOptional()
   empresaId?: string;

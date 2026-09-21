@@ -122,7 +122,7 @@ export class OsService {
     }
 
     const updated = await this.ordemServicoModel
-      .findOneAndUpdate({ _id: id, empresaId }, { ...updateOrdemServicoDto, empresaId }, { new: true })
+      .findOneAndUpdate({ _id: id, empresaId }, { ...updateOrdemServicoDto, empresaId, dataConclusao: nextStatus === OS_STATUS.CONCLUIDA && ordemServico.statusOperacional !== OS_STATUS.CONCLUIDA ? new Date() : ordemServico.dataConclusao }, { new: true })
       .exec();
 
     if (nextStatus && nextStatus !== ordemServico.statusOperacional) {

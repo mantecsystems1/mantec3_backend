@@ -149,7 +149,7 @@ export class SimplePdfBuilder {
     });
     this.currentLines.push({
       type: 'text',
-      text: `Emitido em ${new Date().toLocaleDateString('pt-BR')}`,
+      text: `Emitido em ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`,
       x: MARGIN_X + 18,
       y: this.y - 43,
       size: 8,
@@ -368,7 +368,7 @@ export class SimplePdfBuilder {
 
       let rowX = MARGIN_X;
       wrappedCells.forEach((cellLines, index) => {
-        cellLines.slice(0, 4).forEach((line, lineIndex) => {
+        cellLines.forEach((line, lineIndex) => {
           this.currentLines.push({
             type: 'text',
             text: line,

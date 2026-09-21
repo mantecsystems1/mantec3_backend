@@ -9,6 +9,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsCpfCnpj } from '../../common/validators/cpf-cnpj';
 
 class ClienteEnderecoDto {
   @IsOptional()
@@ -47,6 +48,7 @@ export class CreateClienteDto {
 
   @IsString()
   @IsNotEmpty()
+  @IsCpfCnpj()
   cpfCnpj: string;
 
   @IsOptional()

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'crypto';
@@ -6,9 +6,13 @@ import { promisify } from 'util';
 import { Usuario, UsuarioDocument } from './schemas/usuario.schema';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { CurrentUserPayload } from '../common/decorators/current-user.decorator';
+import { isPlatformAdmin, tenantFilter } from '../common/security/tenant-access';
+import { normalizarPerfil, PERFIS_SISTEMA } from '../permissoes/matriz-permissoes';
 
 const scrypt = promisify(scryptCallback);
 const HASH_PREFIX = 'scrypt';
+const PLATFORM_ROLE = /^\s*(?:admin|administrador)\s*$/i;
 
 @Injectable()
 export class UsuariosService {
@@ -17,7 +21,8 @@ export class UsuariosService {
     private usuarioModel: Model<UsuarioDocument>,
   ) {}
 
-  async create(createUsuarioDto: CreateUsuarioDto) {
+  async create(createUsuarioDto: CreateUsuarioDto, actor?: CurrentUserPayload) {
+    this.validateAssignment(createUsuarioDto, actor);
     const senhaHash = await this.buildSenhaHash(createUsuarioDto);
     const { senha, ...usuarioDto } = createUsuarioDto;
     const createdUsuario = new this.usuarioModel({
@@ -33,11 +38,12 @@ export class UsuariosService {
     return response;
   }
 
-  findAll() {
-    return this.usuarioModel.find().populate('empresaId', 'nomeFantasia razaoSocial').exec();
+  findAll(actor?: CurrentUserPayload) {
+    return this.usuarioModel.find(tenantFilter(actor)).populate('empresaId', 'nomeFantasia razaoSocial').exec();
   }
 
   findTecnicos(empresaId?: string) {
+    if (!empresaId) throw new UnauthorizedException('Empresa nao informada.');
     const query: Record<string, unknown> = {
       ativo: true,
       perfil: { $in: ['tecnico', 'tecnico_assistencia'] },
@@ -50,8 +56,12 @@ export class UsuariosService {
     return this.usuarioModel.find(query).select('nome email perfil empresaId ativo').exec();
   }
 
-  findOne(id: string) {
-    return this.usuarioModel.findById(id).populate('empresaId', 'nomeFantasia razaoSocial').exec();
+  findOne(id: string, actor?: CurrentUserPayload) {
+    return this.usuarioModel.findOne({ _id: id, ...tenantFilter(actor) }).populate('empresaId', 'nomeFantasia razaoSocial').exec();
+  }
+
+  findForAuthentication(id: string) {
+    return this.usuarioModel.findById(id).populate('empresaId').exec();
   }
 
   findByEmail(email: string) {
@@ -62,7 +72,8 @@ export class UsuariosService {
       .exec();
   }
 
-  async update(id: string, updateUsuarioDto: UpdateUsuarioDto) {
+  async update(id: string, updateUsuarioDto: UpdateUsuarioDto, actor?: CurrentUserPayload) {
+    this.validateAssignment(updateUsuarioDto, actor);
     const senhaHash =
       updateUsuarioDto.senha || updateUsuarioDto.senhaHash
         ? await this.buildSenhaHash(updateUsuarioDto)
@@ -78,12 +89,24 @@ export class UsuariosService {
     delete updatePayload.senha;
 
     return this.usuarioModel
-      .findByIdAndUpdate(id, updatePayload, { new: true })
+      .findOneAndUpdate({ _id: id, ...tenantFilter(actor), ...(!isPlatformAdmin(actor) ? { perfil: { $not: PLATFORM_ROLE } } : {}) }, { $set: updatePayload, $inc: { tokenVersion: 1 } }, { new: true, runValidators: true })
       .exec();
   }
 
-  remove(id: string) {
-    return this.usuarioModel.findByIdAndDelete(id).exec();
+  remove(id: string, actor?: CurrentUserPayload) {
+    return this.usuarioModel.findOneAndDelete({ _id: id, ...tenantFilter(actor), ...(!isPlatformAdmin(actor) ? { perfil: { $not: PLATFORM_ROLE } } : {}) }).exec();
+  }
+
+  private validateAssignment(dto: CreateUsuarioDto | UpdateUsuarioDto, actor?: CurrentUserPayload) {
+    tenantFilter(actor);
+    if (dto.perfil !== undefined && typeof dto.perfil !== 'string') throw new BadRequestException('Perfil invalido.');
+    const perfil = dto.perfil === undefined ? undefined : normalizarPerfil(dto.perfil);
+    if (perfil === null) throw new BadRequestException('Perfil invalido.');
+    if (!isPlatformAdmin(actor) && (
+      (dto.empresaId !== undefined && dto.empresaId !== actor?.empresaId) ||
+      perfil === PERFIS_SISTEMA.ADMINISTRADOR
+    )) throw new ForbiddenException('Nao e permitido alterar a empresa ou atribuir administrador da plataforma.');
+    if (perfil) dto.perfil = perfil;
   }
 
   async validatePassword(usuario: UsuarioDocument, senha: string) {

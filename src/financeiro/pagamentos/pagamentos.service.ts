@@ -21,6 +21,11 @@ export class PagamentosService {
   ) {}
 
   async create(createPagamentoDto: CreatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
+    this.assertEmpresaInformada(actorEmpresaId);
+    return this.pagamentoModel.db.transaction(() => this.createAtomic(createPagamentoDto, actorId, actorEmpresaId));
+  }
+
+  private async createAtomic(createPagamentoDto: CreatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
     const venda = await this.getVendaDaEmpresa(createPagamentoDto.vendaId, actorEmpresaId);
 
     this.assertVendaPodeReceberPagamento(venda.statusFinanceiro);
@@ -74,7 +79,8 @@ export class PagamentosService {
       return null;
     }
 
-    await this.getVendaDaEmpresa(pagamento.vendaId.toString(), empresaId);
+    this.assertEmpresaInformada(empresaId);
+    if (!await this.vendaModel.exists({ _id: pagamento.vendaId, empresaId })) throw new NotFoundException('Venda nao encontrada.');
     return this.pagamentoModel
       .findById(id)
       .populate({
@@ -86,6 +92,11 @@ export class PagamentosService {
   }
 
   async update(id: string, updatePagamentoDto: UpdatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
+    this.assertEmpresaInformada(actorEmpresaId);
+    return this.pagamentoModel.db.transaction(() => this.updateAtomic(id, updatePagamentoDto, actorId, actorEmpresaId));
+  }
+
+  private async updateAtomic(id: string, updatePagamentoDto: UpdatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
     const pagamento = await this.pagamentoModel.findById(id).exec();
     if (!pagamento) {
       throw new NotFoundException('Pagamento nao encontrado.');
@@ -97,6 +108,9 @@ export class PagamentosService {
     this.assertVendaPodeReceberPagamento(venda.statusFinanceiro, true);
 
     const updateData: Record<string, unknown> = { ...updatePagamentoDto };
+    if (updatePagamentoDto.vendaId && updatePagamentoDto.vendaId !== vendaId) {
+      throw new BadRequestException('Nao e permitido transferir pagamento para outra venda.');
+    }
     if (updatePagamentoDto.valor) {
       const novoValorCentavos = this.parseValorCentavos(updatePagamentoDto.valor, 'valor');
       if (novoValorCentavos <= 0) {
@@ -135,6 +149,11 @@ export class PagamentosService {
   }
 
   async remove(id: string, actorId?: string, actorEmpresaId?: string) {
+    this.assertEmpresaInformada(actorEmpresaId);
+    return this.pagamentoModel.db.transaction(() => this.removeAtomic(id, actorId, actorEmpresaId));
+  }
+
+  private async removeAtomic(id: string, actorId?: string, actorEmpresaId?: string) {
     const pagamento = await this.pagamentoModel.findById(id).exec();
     if (!pagamento) {
       throw new NotFoundException('Pagamento nao encontrado.');
@@ -220,7 +239,8 @@ export class PagamentosService {
     const query: Record<string, unknown> = { _id: vendaId };
     query.empresaId = empresaId;
 
-    const venda = await this.vendaModel.findOne(query).exec();
+    // Writing the shared sale before reading payments forces concurrent transactions to retry.
+    const venda = await this.vendaModel.findOneAndUpdate(query, { $inc: { __v: 1 } }, { new: true }).exec();
     if (!venda) {
       throw new NotFoundException('Venda nao encontrada.');
     }

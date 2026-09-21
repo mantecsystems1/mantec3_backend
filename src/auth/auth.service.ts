@@ -13,6 +13,7 @@ type TokenPayload = {
   empresaNome?: string;
   perfil?: string;
   exp: number;
+  tokenVersion: number;
 };
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 12;
@@ -37,6 +38,9 @@ export class AuthService {
     }
 
     const empresa = usuario.empresaId as any;
+    if (!empresa?._id || empresa.ativa !== true) {
+      throw new UnauthorizedException('Empresa inativa.');
+    }
     const payload: TokenPayload = {
       sub: String(usuario._id),
       nome: usuario.nome,
@@ -45,6 +49,7 @@ export class AuthService {
       empresaNome: empresa?.nomeFantasia ?? empresa?.razaoSocial,
       perfil: (usuario as any).perfil,
       exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS,
+      tokenVersion: usuario.tokenVersion ?? 0,
     };
 
     return {
@@ -60,10 +65,10 @@ export class AuthService {
     };
   }
 
-  verifyToken(token: string) {
+  async verifyToken(token: string) {
     const [encodedPayload, signature] = token.split('.');
 
-    if (!encodedPayload || !signature) {
+    if (!encodedPayload || !signature || token.split('.').length !== 2) {
       throw new UnauthorizedException('Token invalido');
     }
 
@@ -78,15 +83,25 @@ export class AuthService {
       throw new UnauthorizedException('Token invalido');
     }
 
-    const payload = JSON.parse(
-      Buffer.from(encodedPayload, 'base64url').toString('utf8'),
-    ) as TokenPayload;
+    let payload: TokenPayload;
+    try {
+      payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as TokenPayload;
+    } catch {
+      throw new UnauthorizedException('Token invalido');
+    }
 
-    if (payload.exp < Math.floor(Date.now() / 1000)) {
+    if (!payload || !Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000) || !/^[a-f\d]{24}$/i.test(payload.sub ?? '')) {
       throw new UnauthorizedException('Sessao expirada');
     }
 
-    return payload;
+    const usuario = await this.usuariosService.findForAuthentication(payload.sub);
+    const empresa = usuario?.empresaId as any;
+    if (!usuario?.ativo || !empresa?._id || empresa.ativa !== true ||
+      payload.tokenVersion !== (usuario.tokenVersion ?? 0) ||
+      payload.empresaId !== String(empresa._id) || payload.perfil !== usuario.perfil) {
+      throw new UnauthorizedException('Sessao revogada. Entre novamente.');
+    }
+    return { ...payload, nome: usuario.nome, email: usuario.email };
   }
 
   private sign(payload: TokenPayload) {

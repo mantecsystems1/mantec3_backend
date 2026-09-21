@@ -211,7 +211,8 @@ export const MATRIZ_PERMISSOES: Record<PerfilSistema, ReadonlySet<EventoNegocio>
   [PERFIS_SISTEMA.GERENTE]: new Set(Object.values(EVENTOS_NEGOCIO).filter(
     (evento) => evento !== EVENTOS_NEGOCIO.NOTA_FISCAL_CANCELAR
       && evento !== EVENTOS_NEGOCIO.AUDITORIA_GERENCIAR
-      && evento !== EVENTOS_NEGOCIO.USUARIO_GERENCIAR,
+      && evento !== EVENTOS_NEGOCIO.USUARIO_GERENCIAR
+      && evento !== EVENTOS_NEGOCIO.EMPRESA_GERENCIAR,
   )),
   [PERFIS_SISTEMA.ATENDENTE]: new Set([
     EVENTOS_NEGOCIO.RECEBIMENTO_CRIAR,

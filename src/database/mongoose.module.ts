@@ -1,3 +1,7 @@
+import mongoose from 'mongoose';
+
+// Includes all financial and audit writes in Connection.transaction().
+mongoose.set('transactionAsyncLocalStorage', true);
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';

@@ -30,13 +30,13 @@ describe('AuthTokenGuard', () => {
     reflector.getAllAndOverride.mockReturnValue(false);
   });
 
-  it('bloqueia requisicao sem token', () => {
+  it('bloqueia requisicao sem token', async () => {
     const guard = new AuthTokenGuard({ verifyToken: jest.fn() } as never, reflector as never);
 
-    expect(() => guard.canActivate(createContext({ headers: {} }))).toThrow(UnauthorizedException);
+    await expect(guard.canActivate(createContext({ headers: {} }))).rejects.toThrow(UnauthorizedException);
   });
 
-  it('preenche request.user com payload validado', () => {
+  it('preenche request.user com payload validado', async () => {
     const request: MockRequest = {
       headers: { authorization: 'Bearer token-valido' },
     };
@@ -53,7 +53,7 @@ describe('AuthTokenGuard', () => {
       reflector as never,
     );
 
-    expect(guard.canActivate(createContext(request))).toBe(true);
+    expect(await guard.canActivate(createContext(request))).toBe(true);
     expect(request.user).toEqual({
       id: '507f1f77bcf86cd799439011',
       _id: '507f1f77bcf86cd799439011',

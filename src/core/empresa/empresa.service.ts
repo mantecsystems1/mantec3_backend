@@ -19,8 +19,8 @@ export class EmpresaService {
     return this.empresaModel.create(data);
   }
 
-  findAll() {
-    return this.empresaModel.find();
+  findAll(empresaId?: string) {
+    return this.empresaModel.find(empresaId ? { _id: empresaId } : {});
   }
 
   findOne(id: string) {

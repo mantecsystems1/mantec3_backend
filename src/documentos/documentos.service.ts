@@ -75,14 +75,15 @@ export class DocumentosService {
     pdf.addKeyValue('Validade', this.formatDate(orcamento.validade));
     pdf.addSection('Itens');
     pdf.addTable(
-      ['Tipo', 'Quantidade', 'Valor unitário', 'Total'],
-      [180, 100, 110, 121],
-      itens.map((item) => [
+      ['Descrição', 'Tipo', 'Qtd', 'Valor unitário', 'Total'],
+      [200, 65, 40, 105, 101],
+      await Promise.all(itens.map(async (item) => [
+        await this.itemDescricaoDaEmpresa(item, empresaId),
         item.tipo,
         String(item.quantidade),
         this.formatMoney(item.valorUnitario),
         this.formatMoney(item.totalItem),
-      ]),
+      ])),
     );
     pdf.addSection('Totais');
     pdf.addKeyValue('Subtotal', this.formatMoney(orcamento.subtotal));
@@ -117,14 +118,15 @@ export class DocumentosService {
     pdf.addKeyValue('Status financeiro', venda.statusFinanceiro);
     pdf.addSection('Itens');
     pdf.addTable(
-      ['Tipo', 'Quantidade', 'Valor unitário', 'Total'],
-      [180, 100, 110, 121],
-      itens.map((item) => [
+      ['Descrição', 'Tipo', 'Qtd', 'Valor unitário', 'Total'],
+      [200, 65, 40, 105, 101],
+      await Promise.all(itens.map(async (item) => [
+        await this.itemDescricaoDaEmpresa(item, empresaId),
         item.tipo,
         String(item.quantidade),
         this.formatMoney(item.valorUnitario),
         this.formatMoney(item.totalItem),
-      ]),
+      ])),
     );
     pdf.addSection('Pagamentos');
     pdf.addTable(
@@ -350,9 +352,18 @@ export class DocumentosService {
     pdf.addWrapped(
       termo?.assinaturaImagemBase64
         ? 'Assinatura gráfica coletada no recebimento e armazenada no sistema com hash SHA-256.'
-        : 'Assinatura gráfica não coletada. Aceite registrado pelos metadados acima.',
+        : termo?.assinado && termo?.dataAssinatura
+          ? 'Assinatura gráfica não coletada. Aceite eletrônico registrado pelos metadados acima.'
+          : 'Assinatura e aceite ainda não coletados.',
     );
     return pdf.build();
+  }
+
+  private async itemDescricaoDaEmpresa(item: { tipo?: string; referenciaId?: unknown }, empresaId?: string) {
+    const query: Record<string, unknown> = { _id: item.referenciaId, empresaId };
+    const produtos = item.tipo === 'produto' ? await this.produtoModel.find(query).lean().exec() : [];
+    const servicos = item.tipo === 'servico' ? await this.servicoModel.find(query).lean().exec() : [];
+    return this.getItemDescricao(item, produtos, servicos);
   }
 
   private criarBase(titulo: string, empresa: any, cliente: any) {
@@ -426,7 +437,10 @@ export class DocumentosService {
   }
 
   private formatDate(value: unknown) {
-    return value ? new Date(String(value)).toLocaleDateString('pt-BR') : '-';
+    if (!value) return '-';
+    const date = new Date(String(value));
+    const iso = date.toISOString();
+    return date.toLocaleDateString('pt-BR', { timeZone: iso.endsWith('T00:00:00.000Z') ? 'UTC' : 'America/Sao_Paulo' });
   }
 
   private formatMetodoAssinatura(value?: string) {
