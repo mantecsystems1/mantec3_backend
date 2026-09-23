@@ -11,6 +11,7 @@ import { fileFilterSeguro } from '../../common/uploads/upload-security';
 import { CurrentUser, type CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { RequireEvento } from '../../common/decorators/require-evento.decorator';
 import { EVENTOS_NEGOCIO } from '../../permissoes/matriz-permissoes';
+import { acceptUpload } from '../../common/uploads/upload-content';
 
 mkdirSync('./uploads/recebimentos', { recursive: true });
 
@@ -55,7 +56,7 @@ export class MidiasRecebimentoController {
     fileFilter,
     limits: { fileSize: 50 * 1024 * 1024 },
   }))
-  upload(
+  async upload(
     @UploadedFile() file: any,
     @Body() body: Omit<CreateMidiasRecebimentoDto, 'urlArquivo'>,
     @CurrentUser() user?: CurrentUserPayload,
@@ -64,24 +65,26 @@ export class MidiasRecebimentoController {
       throw new BadRequestException('Arquivo da midia e obrigatorio.');
     }
 
-    const hashSha256 = createHash('sha256').update(readFileSync(file.path)).digest('hex');
+    return acceptUpload('recebimentos', file, () => {
+      const hashSha256 = createHash('sha256').update(readFileSync(file.path)).digest('hex');
 
-    return this.midiasRecebimentoService.create(
-      {
-        recebimentoEquipamentoId: body.recebimentoEquipamentoId,
-        tipo: body.tipo,
-        descricao: body.descricao,
-        urlArquivo: `/uploads/recebimentos/${file.filename}`,
-        nomeOriginal: file.originalname,
-        nomeArquivo: file.filename,
-        mimeType: file.mimetype,
-        tamanhoBytes: file.size,
-        hashSha256,
-        origemCaptura: body.origemCaptura ?? 'arquivo',
-        capturadoEm: body.capturadoEm ?? new Date().toISOString(),
-      },
-      user?.empresaId,
-    );
+      return this.midiasRecebimentoService.create(
+        {
+          recebimentoEquipamentoId: body.recebimentoEquipamentoId,
+          tipo: body.tipo,
+          descricao: body.descricao,
+          urlArquivo: `/uploads/recebimentos/${file.filename}`,
+          nomeOriginal: file.originalname,
+          nomeArquivo: file.filename,
+          mimeType: file.mimetype,
+          tamanhoBytes: file.size,
+          hashSha256,
+          origemCaptura: body.origemCaptura ?? 'arquivo',
+          capturadoEm: body.capturadoEm ?? new Date().toISOString(),
+        },
+        user?.empresaId,
+      );
+    });
   }
 
   @Get()

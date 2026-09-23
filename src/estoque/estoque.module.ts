@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { EstoqueService } from './estoque.service';
 import { EstoqueController } from './estoque.controller';
 import { MovimentosEstoque, MovimentosEstoqueSchema } from './schemas/movimento-estoque.schema';
+import { SaldoEstoque, SaldoEstoqueSchema } from './schemas/saldo-estoque.schema';
 import { AuditoriaModule } from '../auditoria/auditoria.module';
 import { Produto, ProdutoSchema } from '../catalogo/produtos/schemas/produto.schema';
 
@@ -11,6 +12,7 @@ import { Produto, ProdutoSchema } from '../catalogo/produtos/schemas/produto.sch
     AuditoriaModule,
     MongooseModule.forFeature([
       { name: MovimentosEstoque.name, schema: MovimentosEstoqueSchema },
+      { name: SaldoEstoque.name, schema: SaldoEstoqueSchema },
       { name: Produto.name, schema: ProdutoSchema },
     ]),
   ],

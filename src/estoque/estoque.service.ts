@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { MovimentosEstoque, MovimentosEstoqueDocument } from './schemas/movimento-estoque.schema';
+import { SaldoEstoque, SaldoEstoqueDocument } from './schemas/saldo-estoque.schema';
 import { Produto, ProdutoDocument } from '../catalogo/produtos/schemas/produto.schema';
 import { CreateMovimentoEstoqueDto } from './dto/create-movimento-estoque.dto';
 import { UpdateMovimentoEstoqueDto } from './dto/update-movimento-estoque.dto';
@@ -28,6 +29,7 @@ export interface ProdutoDisponibilidadeResumo {
 export class EstoqueService {
   constructor(
     @InjectModel(MovimentosEstoque.name) private movimentosEstoqueModel: Model<MovimentosEstoqueDocument>,
+    @InjectModel(SaldoEstoque.name) private saldoEstoqueModel: Model<SaldoEstoqueDocument>,
     @InjectModel(Produto.name) private produtoModel: Model<ProdutoDocument>,
     private readonly auditoriaService: AuditoriaService,
   ) {}
@@ -37,10 +39,16 @@ export class EstoqueService {
     const movimentoData = { ...createMovimentoEstoqueDto, empresaId };
     await this.assertProdutoDaEmpresa(movimentoData.produtoId, empresaId);
     this.assertMovimentoValido(movimentoData.tipo, movimentoData.quantidade);
-    await this.assertMovimentoNaoNegativaEstoque(movimentoData);
+    await this.aplicarMovimentoSaldoAtomico(movimentoData);
 
     const createdMovimento = new this.movimentosEstoqueModel(movimentoData);
-    const saved = await createdMovimento.save();
+    let saved: MovimentosEstoqueDocument;
+    try {
+      saved = await createdMovimento.save();
+    } catch (error) {
+      await this.reverterMovimentoSaldoAtomico(movimentoData).catch(() => undefined);
+      throw error;
+    }
 
     if (actorId) {
       await this.registrarAuditoriaEstoque(saved, actorId, 'criado');
@@ -247,6 +255,93 @@ export class EstoqueService {
     if (disponivel < quantidade) {
       throw new BadRequestException(`Saldo insuficiente para movimentar estoque. Disponivel: ${disponivel}. Solicitado: ${quantidade}.`);
     }
+  }
+
+  private async aplicarMovimentoSaldoAtomico(movimento: Pick<CreateMovimentoEstoqueDto, 'produtoId' | 'tipo' | 'quantidade'> & { empresaId?: string }) {
+    const produtoId = this.getObjectIdString(movimento.produtoId);
+    const empresaId = movimento.empresaId;
+    if (!produtoId || !empresaId) return;
+
+    await this.ensureSaldoEstoque(produtoId, empresaId);
+    const quantidade = Number(movimento.quantidade || 0);
+    const { filtro, inc } = this.operacaoSaldo(movimento.tipo, quantidade);
+    const saldo = await this.saldoEstoqueModel.findOneAndUpdate(
+      { empresaId, produtoId, ...filtro },
+      { $inc: inc },
+      { new: true },
+    ).exec();
+
+    if (!saldo) {
+      throw new BadRequestException(`Saldo insuficiente para movimentar estoque. Solicitado: ${quantidade}.`);
+    }
+  }
+
+  private async reverterMovimentoSaldoAtomico(movimento: Pick<CreateMovimentoEstoqueDto, 'produtoId' | 'tipo' | 'quantidade'> & { empresaId?: string }) {
+    const produtoId = this.getObjectIdString(movimento.produtoId);
+    const empresaId = movimento.empresaId;
+    if (!produtoId || !empresaId) return;
+    const quantidade = Number(movimento.quantidade || 0);
+    const { inc } = this.operacaoSaldo(movimento.tipo, quantidade);
+    await this.saldoEstoqueModel.findOneAndUpdate(
+      { empresaId, produtoId },
+      {
+        $inc: {
+          saldoFisico: -Number(inc.saldoFisico ?? 0),
+          reservado: -Number(inc.reservado ?? 0),
+          disponivel: -Number(inc.disponivel ?? 0),
+        },
+      },
+    ).exec();
+  }
+
+  private async ensureSaldoEstoque(produtoId: string, empresaId: string) {
+    const existing = await this.saldoEstoqueModel.exists({ empresaId, produtoId }).exec();
+    if (existing) return;
+
+    const movimentos = await this.movimentosEstoqueModel.find({ empresaId, produtoId }).exec();
+    const disponibilidade = calcularDisponibilidadeMovimentos(movimentos);
+    try {
+      await this.saldoEstoqueModel.findOneAndUpdate(
+        { empresaId, produtoId },
+        { $setOnInsert: { empresaId, produtoId, ...disponibilidade } },
+        { upsert: true, new: true },
+      ).exec();
+    } catch (error) {
+      if (!this.isDuplicateKeyError(error)) throw error;
+    }
+  }
+
+  private operacaoSaldo(tipo: string, quantidade: number) {
+    if (tipo === MOVIMENTO_ESTOQUE_TIPO.RESERVA_OS) {
+      return {
+        filtro: { disponivel: { $gte: quantidade } },
+        inc: { reservado: quantidade, disponivel: -quantidade },
+      };
+    }
+
+    if (tipo === MOVIMENTO_ESTOQUE_TIPO.ESTORNO_RESERVA) {
+      return {
+        filtro: { reservado: { $gte: quantidade } },
+        inc: { reservado: -quantidade, disponivel: quantidade },
+      };
+    }
+
+    if ([MOVIMENTO_ESTOQUE_TIPO.ENTRADA, MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA, MOVIMENTO_ESTOQUE_TIPO.ESTORNO_OS, MOVIMENTO_ESTOQUE_TIPO.TROCA_GARANTIA].includes(tipo as never)) {
+      return {
+        filtro: {},
+        inc: { saldoFisico: quantidade, disponivel: quantidade },
+      };
+    }
+
+    return {
+      filtro: { saldoFisico: { $gte: quantidade }, disponivel: { $gte: quantidade } },
+      inc: { saldoFisico: -quantidade, disponivel: -quantidade },
+    };
+  }
+
+  private isDuplicateKeyError(error: unknown) {
+    const e = error as { code?: number };
+    return e?.code === 11000;
   }
 
   private deveValidarSaldo(tipo: string) {

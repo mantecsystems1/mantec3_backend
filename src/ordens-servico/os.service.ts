@@ -315,25 +315,28 @@ export class OsService {
     }
 
     const ordemServico = await this.assertOsCanConsumeItem(reserva.ordemServicoId.toString(), empresaId);
+    const reservaConsumida = await this.pecasReservadasOSModel.findOneAndDelete({ _id: reservaId }).exec();
+    if (!reservaConsumida) {
+      throw new NotFoundException('Reserva de peca da OS nao encontrada.');
+    }
 
     await this.registrarMovimentoEstoqueOs({
       ordemServico,
-      produtoId: reserva.produtoId.toString(),
-      quantidade: reserva.quantidade,
+      produtoId: reservaConsumida.produtoId.toString(),
+      quantidade: reservaConsumida.quantidade,
       tipo: MOVIMENTO_ESTOQUE_TIPO.ESTORNO_RESERVA,
     });
 
     const item = await this.createItem(
       {
-        ordemServicoId: reserva.ordemServicoId.toString(),
-        produtoId: reserva.produtoId.toString(),
-        quantidade: reserva.quantidade,
+        ordemServicoId: reservaConsumida.ordemServicoId.toString(),
+        produtoId: reservaConsumida.produtoId.toString(),
+        quantidade: reservaConsumida.quantidade,
       },
       { skipSaldoCheck: true },
       ordemServico.empresaId.toString(),
     );
 
-    await this.pecasReservadasOSModel.findByIdAndDelete(reservaId).exec();
     return item;
   }
 
@@ -344,15 +347,19 @@ export class OsService {
     }
 
     const ordemServico = await this.assertOsCanReserveItem(reserva.ordemServicoId.toString(), empresaId);
+    const reservaRemovida = await this.pecasReservadasOSModel.findOneAndDelete({ _id: reservaId }).exec();
+    if (!reservaRemovida) {
+      throw new NotFoundException('Reserva de peca da OS nao encontrada.');
+    }
 
     await this.registrarMovimentoEstoqueOs({
       ordemServico,
-      produtoId: reserva.produtoId.toString(),
-      quantidade: reserva.quantidade,
+      produtoId: reservaRemovida.produtoId.toString(),
+      quantidade: reservaRemovida.quantidade,
       tipo: MOVIMENTO_ESTOQUE_TIPO.ESTORNO_RESERVA,
     });
 
-    return this.pecasReservadasOSModel.findByIdAndDelete(reservaId).exec();
+    return reservaRemovida;
   }
 
   async findAllItems(empresaId?: string) {

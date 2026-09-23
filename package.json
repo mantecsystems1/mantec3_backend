@@ -23,9 +23,12 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "test:integration": "node -r ts-node/register test/pagamentos-transactions.integration.ts"
+    "test:integration": "node -r ts-node/register test/pagamentos-transactions.integration.ts && npm run test:tenant-references && npm run test:estoque-concorrencia",
+    "test:tenant-references": "node -r ts-node/register test/tenant-client-references.integration.ts",
+    "test:estoque-concorrencia": "node -r ts-node/register test/estoque-concorrencia.integration.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1137.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -34,6 +37,7 @@
     "@nestjs/swagger": "^11.2.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.4",
+    "file-type": "^22.1.1",
     "firebase-admin": "^13.6.0",
     "mongoose": "^9.1.4",
     "reflect-metadata": "^0.2.2",

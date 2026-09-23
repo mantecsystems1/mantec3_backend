@@ -1,0 +1,37 @@
+{
+  "manifestsMatch": true,
+  "collections": 44,
+  "documents": 3496,
+  "indexes": 89,
+  "commitReplicated": true,
+  "abortAbsent": true,
+  "majorityVoteCount": 2,
+  "writeMajorityCount": 2,
+  "votingMembersCount": 2,
+  "members": [
+    {
+      "id": 0,
+      "host": "tasks.mantec3_mongo:27017",
+      "votes": 1,
+      "priority": 1
+    },
+    {
+      "id": 1,
+      "host": "tasks.mantec3_mongo-secondary:27017",
+      "votes": 1,
+      "priority": 1
+    }
+  ],
+  "states": [
+    {
+      "name": "tasks.mantec3_mongo:27017",
+      "state": "PRIMARY",
+      "health": 1
+    },
+    {
+      "name": "tasks.mantec3_mongo-secondary:27017",
+      "state": "SECONDARY",
+      "health": 1
+    }
+  ]
+}

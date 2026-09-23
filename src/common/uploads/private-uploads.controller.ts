@@ -1,5 +1,4 @@
 import { Controller, Get, Param, Res, StreamableFile } from '@nestjs/common';
-import { createReadStream } from 'fs';
 import type { Response } from 'express';
 import { CurrentUser, type CurrentUserPayload } from '../decorators/current-user.decorator';
 import { RequireEvento } from '../decorators/require-evento.decorator';
@@ -37,7 +36,7 @@ export class PrivateUploadsController {
       'X-Content-Type-Options': 'nosniff',
     });
 
-    return new StreamableFile(createReadStream(file.filePath));
+    return new StreamableFile(file.stream);
   }
 
   private sanitizeHeaderFilename(filename: string) {

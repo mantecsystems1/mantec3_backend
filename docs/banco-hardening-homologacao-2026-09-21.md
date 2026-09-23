@@ -1,5 +1,7 @@
 # Banco da homologação — alterações e validação
 
+> Atualização posterior: foram implantados e verificados **dois membros de dados**, conforme decisão de manter os notebooks atuais. Consulte a [topologia atual, evidências e limitações de maioria](banco-dois-membros-2026-09-21.md). As referências a um membro abaixo descrevem a etapa anterior.
+
 Implementação em 21/09/2026, no ambiente acessado por `lemuel@ssh.portalmantec.com.br`. Este documento complementa e atualiza o relatório inicial de conversão para replica set.
 
 ## Estado entregue

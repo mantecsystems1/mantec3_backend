@@ -1,17 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { access } from 'fs/promises';
-import { basename, resolve } from 'path';
 import { Model } from 'mongoose';
+import { Readable } from 'node:stream';
 import { Produto, ProdutoDocument } from '../../catalogo/produtos/schemas/produto.schema';
 import { AnexoFinanceiro, AnexoFinanceiroDocument } from '../../financeiro/financeiro-adm/schemas/anexo-financeiro.schema';
 import { MidiasRecebimento, MidiasRecebimentoDocument } from '../../recebimento/midias/midias-recebimento.schema';
 import { RecebimentoEquipamento, RecebimentoEquipamentoDocument } from '../../recebimento/recebimento-equipamento/recebimento-equipamento.schema';
+import { isMissingUpload, openUpload, uploadKey } from './upload-storage';
 
 export type UploadArea = 'produtos' | 'recebimentos' | 'financeiro-provas';
 
 export type PrivateUploadFile = {
-  filePath: string;
+  stream: Readable;
   contentType: string;
   filename: string;
   disposition: 'inline' | 'attachment';
@@ -31,16 +31,19 @@ export class PrivateUploadsService {
     this.assertFilenameSeguro(filename);
 
     const metadata = await this.getMetadata(area, filename, empresaId);
-    const filePath = this.resolveUploadPath(area, filename);
 
+    let stream: Readable;
     try {
-      await access(filePath);
-    } catch {
+      stream = await openUpload(area, filename);
+    } catch (error) {
+      if (!isMissingUpload(error)) {
+        throw error;
+      }
       throw new NotFoundException('Arquivo nao encontrado.');
     }
 
     return {
-      filePath,
+      stream,
       contentType: metadata.contentType,
       filename: metadata.originalName || filename,
       disposition: metadata.disposition,
@@ -129,18 +132,10 @@ export class PrivateUploadsService {
     };
   }
 
-  private resolveUploadPath(area: UploadArea, filename: string) {
-    const root = resolve(process.cwd(), 'uploads', area);
-    const filePath = resolve(root, filename);
-    if (!filePath.startsWith(`${root}\\`) && !filePath.startsWith(`${root}/`)) {
-      throw new BadRequestException('Caminho de arquivo invalido.');
-    }
-
-    return filePath;
-  }
-
   private assertFilenameSeguro(filename: string) {
-    if (!filename || filename !== basename(filename) || /[\\/]/.test(filename)) {
+    try {
+      uploadKey('produtos', filename);
+    } catch {
       throw new BadRequestException('Nome de arquivo invalido.');
     }
   }

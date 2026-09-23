@@ -11,6 +11,7 @@ import { CurrentUser, type CurrentUserPayload } from '../../common/decorators/cu
 import { fileFilterSeguro } from '../../common/uploads/upload-security';
 import { RequireEvento } from '../../common/decorators/require-evento.decorator';
 import { EVENTOS_NEGOCIO } from '../../permissoes/matriz-permissoes';
+import { acceptUpload } from '../../common/uploads/upload-content';
 
 mkdirSync('./uploads/produtos', { recursive: true });
 
@@ -68,12 +69,12 @@ export class ProdutosController {
     fileFilter: produtoFotoFilter,
     limits: { fileSize: 15 * 1024 * 1024 },
   }))
-  createComFoto(@UploadedFile() file: any, @Body() body: any, @CurrentUser() user?: CurrentUserPayload) {
+  async createComFoto(@UploadedFile() file: any, @Body() body: any, @CurrentUser() user?: CurrentUserPayload) {
     if (!file) {
       return this.produtosService.create(body, user?.empresaId);
     }
 
-    return this.produtosService.create(montarDadosFotoProduto(file, body), user?.empresaId);
+    return acceptUpload('produtos', file, () => this.produtosService.create(montarDadosFotoProduto(file, body), user?.empresaId));
   }
 
   @Get()
@@ -101,12 +102,12 @@ export class ProdutosController {
     fileFilter: produtoFotoFilter,
     limits: { fileSize: 15 * 1024 * 1024 },
   }))
-  updateComFoto(@Param('id') id: string, @UploadedFile() file: any, @Body() body: any, @CurrentUser() user?: CurrentUserPayload) {
+  async updateComFoto(@Param('id') id: string, @UploadedFile() file: any, @Body() body: any, @CurrentUser() user?: CurrentUserPayload) {
     if (!file) {
       return this.produtosService.update(id, body, user?.empresaId);
     }
 
-    return this.produtosService.update(id, montarDadosFotoProduto(file, body), user?.empresaId);
+    return acceptUpload('produtos', file, () => this.produtosService.update(id, montarDadosFotoProduto(file, body), user?.empresaId));
   }
 
   @Delete(':id')

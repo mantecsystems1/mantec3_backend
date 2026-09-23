@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { mkdirSync } from 'fs';
 import { diskStorage } from 'multer';
@@ -29,6 +29,7 @@ import { ListAnexosFinanceirosQueryDto } from './dto/list-anexos-financeiros-que
 import { ReabrirMesFinanceiroDto } from './dto/reabrir-mes-financeiro.dto';
 import { RelatorioMensalFinanceiroQueryDto } from './dto/relatorio-mensal-financeiro-query.dto';
 import { fileFilterSeguro } from '../../common/uploads/upload-security';
+import { acceptUpload } from '../../common/uploads/upload-content';
 
 mkdirSync('./uploads/financeiro-provas', { recursive: true });
 
@@ -124,8 +125,12 @@ export class FinanceiroAdmController {
     fileFilter: fileFilterSeguro(ANEXO_FINANCEIRO_MIME_TYPES, 'O anexo financeiro'),
     limits: { fileSize: 15 * 1024 * 1024 },
   }))
-  uploadAnexo(@UploadedFile() file: any, @Body() body: CreateAnexoFinanceiroDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.financeiroAdmService.createAnexo(body, file, user?.id, user?.empresaId);
+  async uploadAnexo(@UploadedFile() file: any, @Body() body: CreateAnexoFinanceiroDto, @CurrentUser() user?: CurrentUserPayload) {
+    if (!file) {
+      return this.financeiroAdmService.createAnexo(body, file, user?.id, user?.empresaId);
+    }
+
+    return acceptUpload('financeiro-provas', file, () => this.financeiroAdmService.createAnexo(body, file, user?.id, user?.empresaId));
   }
 
   @Delete('anexos/:id')
@@ -208,8 +213,13 @@ export class FinanceiroAdmController {
 
   @Post('titulos/:id/baixar')
   @RequireEvento(EVENTOS_NEGOCIO.TITULO_FINANCEIRO_BAIXAR)
-  baixarTitulo(@Param('id') id: string, @Body() dto: BaixarTituloFinanceiroDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.financeiroAdmService.baixarTitulo(id, dto, user?.id, user?.empresaId);
+  baixarTitulo(
+    @Param('id') id: string,
+    @Body() dto: BaixarTituloFinanceiroDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @CurrentUser() user?: CurrentUserPayload,
+  ) {
+    return this.financeiroAdmService.baixarTitulo(id, dto, user?.id, user?.empresaId, idempotencyKey);
   }
 
   @Post('titulos/:id/cancelar')

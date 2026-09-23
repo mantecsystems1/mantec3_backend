@@ -155,6 +155,7 @@ describe('FinanceiroAdmService', () => {
     tituloModel.findOne.mockReturnValue(execResult(titulo));
     contaModel.findOne.mockReturnValue(execResult(conta));
     categoriaModel.findOne.mockReturnValue(execResult(categoria));
+    movimentoModel.findOne.mockReturnValue(execResult(null));
     movimentoModel.create.mockResolvedValue(movimento);
     contaModel.findOneAndUpdate.mockReturnValue(execResult({
       ...conta,
@@ -175,11 +176,54 @@ describe('FinanceiroAdmService', () => {
       status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
     }));
     expect(movimentoModel.create.mock.calls[0][0].valor.toString()).toBe('100.00');
-    expect(contaModel.findOneAndUpdate.mock.calls[0][1].saldoAtual.toString()).toBe('400.00');
+    expect(contaModel.findOneAndUpdate.mock.calls[0][1].$inc.saldoAtual.toString()).toBe('-100.00');
     expect(tituloModel.findOneAndUpdate.mock.calls[0][1].$set.valorPago.toString()).toBe('100.00');
     expect(tituloModel.findOneAndUpdate.mock.calls[0][1].$set.status).toBe(TITULO_FINANCEIRO_STATUS.QUITADO);
     expect(result.titulo).toBe(tituloAtualizado);
     expect(result.movimento).toBe(movimento);
+  });
+
+  it('reenvio idempotente da baixa retorna movimento existente sem duplicar saldo', async () => {
+    const empresaId = new Types.ObjectId();
+    const contaId = new Types.ObjectId();
+    const categoriaId = new Types.ObjectId();
+    const tituloId = new Types.ObjectId();
+    const movimentoId = new Types.ObjectId();
+    const titulo = {
+      _id: tituloId,
+      empresaId,
+      tipo: TITULO_FINANCEIRO_TIPO.PAGAR,
+      categoriaId,
+      descricao: 'Internet',
+      valorTotal: Types.Decimal128.fromString('100.00'),
+      valorPago: Types.Decimal128.fromString('100.00'),
+      status: TITULO_FINANCEIRO_STATUS.QUITADO,
+    };
+    const movimento = {
+      _id: movimentoId,
+      empresaId,
+      idempotencyKey: 'baixa-123',
+      tipo: MOVIMENTO_CAIXA_TIPO.SAIDA,
+      valor: Types.Decimal128.fromString('100.00'),
+      status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+    };
+    const { service, contaModel, categoriaModel, tituloModel, movimentoModel } = createService();
+    tituloModel.findOne.mockReturnValue(execResult(titulo));
+    contaModel.findOne.mockReturnValue(execResult({ _id: contaId, empresaId, saldoAtual: Types.Decimal128.fromString('400.00') }));
+    categoriaModel.findOne.mockReturnValue(execResult({ _id: categoriaId, empresaId, tipo: CATEGORIA_FINANCEIRA_TIPO.SAIDA, ativo: true }));
+    movimentoModel.findOne.mockReturnValue(execResult(movimento));
+
+    const result = await service.baixarTitulo(tituloId.toString(), {
+      contaId: contaId.toString(),
+      valor: '100.00',
+      dataPagamento: '2026-08-01',
+      formaPagamento: FORMA_PAGAMENTO_FINANCEIRO.PIX,
+    }, new Types.ObjectId().toString(), empresaId.toString(), 'baixa-123');
+
+    expect(result.movimento).toBe(movimento);
+    expect(movimentoModel.create).not.toHaveBeenCalled();
+    expect(contaModel.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(tituloModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it('bloqueia movimento com categoria incompativel', async () => {
@@ -382,7 +426,7 @@ describe('FinanceiroAdmService', () => {
       status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
     }));
     expect(movimentoModel.create.mock.calls[0][0].valor.toString()).toBe('100.00');
-    expect(contaModel.findOneAndUpdate.mock.calls[0][1].saldoAtual.toString()).toBe('110.00');
+    expect(contaModel.findOneAndUpdate.mock.calls[0][1].$inc.saldoAtual.toString()).toBe('100.00');
     expect(result.titulo).toBe(tituloAtualizado);
     expect(result.movimento).toBe(movimento);
   });
@@ -678,7 +722,7 @@ describe('FinanceiroAdmService', () => {
       formaPagamento: FORMA_PAGAMENTO_FINANCEIRO.DINHEIRO,
     }, new Types.ObjectId().toString(), empresaId.toString());
 
-    expect(contaModel.findOneAndUpdate.mock.calls[0][1].saldoAtual.toString()).toBe('350.00');
+    expect(contaModel.findOneAndUpdate.mock.calls[0][1].$inc.saldoAtual.toString()).toBe('50.00');
     expect(result.status).toBe(MOVIMENTO_CAIXA_STATUS.CONFIRMADO);
   });
 
@@ -742,7 +786,7 @@ describe('FinanceiroAdmService', () => {
       motivo: 'Pagamento cancelado',
     }, usuarioId, empresaId.toString());
 
-    expect(contaModel.findOneAndUpdate.mock.calls[0][1].saldoAtual.toString()).toBe('250.00');
+    expect(contaModel.findOneAndUpdate.mock.calls[0][1].$inc.saldoAtual.toString()).toBe('-100.00');
     expect(movimentoModel.findOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         _id: movimentoId.toString(),

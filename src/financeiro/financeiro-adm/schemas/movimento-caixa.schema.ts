@@ -46,6 +46,12 @@ export class MovimentoCaixa {
   observacoes?: string;
 
   @Prop()
+  idempotencyKey?: string;
+
+  @Prop()
+  idempotencyHash?: string;
+
+  @Prop()
   estornadoEm?: Date;
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Usuario' })
@@ -56,3 +62,8 @@ export class MovimentoCaixa {
 }
 
 export const MovimentoCaixaSchema = SchemaFactory.createForClass(MovimentoCaixa);
+
+MovimentoCaixaSchema.index(
+  { empresaId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
+);

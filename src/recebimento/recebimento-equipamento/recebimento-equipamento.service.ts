@@ -11,6 +11,7 @@ import { TermosRecebimento, TermosRecebimentoDocument } from '../termos/termos-r
 import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS, type AuditoriaEvento } from '../../auditoria/auditoria-eventos';
 import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
+import { assertTenantReference } from '../../common/tenant-reference';
 
 @Injectable()
 export class RecebimentoEquipamentoService {
@@ -36,6 +37,7 @@ export class RecebimentoEquipamentoService {
       throw new BadRequestException('Recebimento nao pode ser vinculado a outra empresa.');
     }
 
+    await assertTenantReference(this.recebimentoEquipamentoModel.db, 'Cliente', payload.clienteId, payload.empresaId);
     const createdRecebimentoEquipamento = new this.recebimentoEquipamentoModel(payload);
     const saved = await createdRecebimentoEquipamento.save();
 
@@ -56,7 +58,7 @@ export class RecebimentoEquipamentoService {
     return this.recebimentoEquipamentoModel
       .find(this.getEmpresaQuery(empresaId))
       .populate('empresaId', 'nomeFantasia razaoSocial')
-      .populate('clienteId', 'nome cpfCnpj')
+      .populate({ path: 'clienteId', select: 'nome cpfCnpj', match: { empresaId } })
       .populate('recebidoPor', 'nome email')
       .exec();
   }
@@ -66,7 +68,7 @@ export class RecebimentoEquipamentoService {
     const recebimento = await this.recebimentoEquipamentoModel
       .findOne(this.getEmpresaQuery(empresaId, { _id: id }))
       .populate('empresaId', 'nomeFantasia razaoSocial')
-      .populate('clienteId', 'nome cpfCnpj')
+      .populate({ path: 'clienteId', select: 'nome cpfCnpj', match: { empresaId } })
       .populate('recebidoPor', 'nome email')
       .lean()
       .exec();
@@ -97,6 +99,9 @@ export class RecebimentoEquipamentoService {
 
     const updatePayload = { ...updateRecebimentoEquipamentoDto };
     delete updatePayload.empresaId;
+    if (updatePayload.clienteId !== undefined) {
+      await assertTenantReference(this.recebimentoEquipamentoModel.db, 'Cliente', updatePayload.clienteId, user.empresaId);
+    }
 
     const updated = await this.recebimentoEquipamentoModel
       .findOneAndUpdate(this.getEmpresaQuery(user?.empresaId, { _id: id }), updatePayload, { new: true })

@@ -12,6 +12,7 @@ import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../../auditoria/auditoria-eventos';
 import { FinanceiroAdmService } from '../financeiro-adm/financeiro-adm.service';
 import { centavosParaDecimal128, dinheiroParaCentavos } from '../financeiro-adm/financeiro-adm.types';
+import { assertTenantReference } from '../../common/tenant-reference';
 
 @Injectable()
 export class VendasService {
@@ -26,6 +27,7 @@ export class VendasService {
   async create(createVendaDto: CreateVendaDto, actorId?: string, actorEmpresaId?: string) {
     const { itens = [], ...dto } = createVendaDto;
     this.assertEmpresaPermitida(dto.empresaId, actorEmpresaId);
+    await assertTenantReference(this.vendaModel.db, 'Cliente', dto.clienteId, actorEmpresaId ?? dto.empresaId);
 
     if (!isVendaStatusFinanceiro(dto.statusFinanceiro)) {
       throw new BadRequestException(`Status financeiro invalido: ${dto.statusFinanceiro}`);
@@ -83,7 +85,7 @@ export class VendasService {
   async findAll(empresaId?: string) {
     const vendas = await this.vendaModel
       .find(this.getEmpresaQuery(empresaId))
-      .populate('clienteId', 'nome cpfCnpj email')
+      .populate({ path: 'clienteId', select: 'nome cpfCnpj email', match: (venda: any) => ({ empresaId: venda.empresaId }) })
       .lean()
       .exec();
     return Promise.all(vendas.map((venda) => this.attachItensVenda(venda)));
@@ -92,7 +94,7 @@ export class VendasService {
   async findOne(id: string, empresaId?: string) {
     const venda = await this.vendaModel
       .findOne(this.getEmpresaQuery(empresaId, { _id: id }))
-      .populate('clienteId', 'nome cpfCnpj email')
+      .populate({ path: 'clienteId', select: 'nome cpfCnpj email', match: (venda: any) => ({ empresaId: venda.empresaId }) })
       .lean()
       .exec();
     return venda ? this.attachItensVenda(venda) : null;
@@ -107,6 +109,10 @@ export class VendasService {
     const vendaAtual = await this.vendaModel.findOne(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
     if (!vendaAtual) {
       throw new NotFoundException('Venda nao encontrada.');
+    }
+    await assertTenantReference(this.vendaModel.db, 'Cliente', dto.clienteId ?? vendaAtual.clienteId, vendaAtual.empresaId);
+    if (dto.empresaId && String(dto.empresaId) !== String(vendaAtual.empresaId)) {
+      throw new BadRequestException('Venda nao pode ser movida para outra empresa.');
     }
 
     if (dto.statusFinanceiro === 'cancelado') {
@@ -224,7 +230,8 @@ export class VendasService {
 
   // ItensVenda CRUD
   async createItem(createItensVendaDto: CreateItensVendaDto, actorEmpresaId?: string) {
-    await this.assertVendaPertenceEmpresa(createItensVendaDto.vendaId, actorEmpresaId);
+    const venda = await this.assertVendaPertenceEmpresa(createItensVendaDto.vendaId, actorEmpresaId);
+    await this.assertReferenciaItemPertenceEmpresa(createItensVendaDto.tipo, createItensVendaDto.referenciaId, venda.empresaId);
 
     const itemData: any = {
       ...createItensVendaDto,
@@ -262,7 +269,13 @@ export class VendasService {
       throw new NotFoundException('Item de venda nao encontrado.');
     }
 
-    await this.assertVendaPertenceEmpresa((updateItensVendaDto.vendaId ?? item.vendaId).toString(), actorEmpresaId);
+    const vendaAtual = await this.assertVendaPertenceEmpresa(item.vendaId.toString(), actorEmpresaId);
+    const vendaDestino = updateItensVendaDto.vendaId
+      ? await this.assertVendaPertenceEmpresa(updateItensVendaDto.vendaId.toString(), actorEmpresaId)
+      : vendaAtual;
+    const tipo = updateItensVendaDto.tipo ?? item.tipo;
+    const referenciaId = updateItensVendaDto.referenciaId ?? item.referenciaId.toString();
+    await this.assertReferenciaItemPertenceEmpresa(tipo, referenciaId, vendaDestino.empresaId);
 
     const updateData: any = { ...updateItensVendaDto };
     const quantidade = updateItensVendaDto.quantidade ?? item.quantidade;
@@ -304,14 +317,14 @@ export class VendasService {
           if (item.tipo === 'produto') {
             referenciaDetails = await this.vendaModel.db
               .model('Produto')
-              .findById(item.referenciaId)
+              .findOne({ _id: item.referenciaId, empresaId: venda.empresaId })
               .select('nome codigoInterno precoVenda tipoProduto aparelhoModeloId qualidade temAro cor')
               .lean()
               .exec();
           } else if (item.tipo === 'servico') {
             referenciaDetails = await this.vendaModel.db
               .model('Servico')
-              .findById(item.referenciaId)
+              .findOne({ _id: item.referenciaId, empresaId: venda.empresaId })
               .select('nome')
               .lean()
               .exec();
@@ -343,14 +356,30 @@ export class VendasService {
   }
 
   private async assertVendaPertenceEmpresa(vendaId: string, empresaId?: string) {
-    if (!empresaId) {
-      return;
+    if (!Types.ObjectId.isValid(vendaId)) {
+      throw new BadRequestException('Venda invalida.');
     }
 
-    const venda = await this.vendaModel.exists({ _id: vendaId, empresaId }).exec();
+    const venda = await this.vendaModel.findOne(this.getEmpresaQuery(empresaId, { _id: vendaId })).select('_id empresaId').lean().exec();
     if (!venda) {
       throw new NotFoundException('Venda nao encontrada.');
     }
+
+    return venda;
+  }
+
+  private async assertReferenciaItemPertenceEmpresa(tipo: unknown, referenciaId: unknown, empresaId: unknown) {
+    if (tipo === 'produto') {
+      await assertTenantReference(this.vendaModel.db, 'Produto', referenciaId, empresaId);
+      return;
+    }
+
+    if (tipo === 'servico') {
+      await assertTenantReference(this.vendaModel.db, 'Servico', referenciaId, empresaId);
+      return;
+    }
+
+    throw new BadRequestException('Tipo do item de venda invalido.');
   }
 
   private async getVendaIdsEmpresa(empresaId: string) {

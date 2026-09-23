@@ -63,7 +63,7 @@ export class DocumentosService {
 
     const [empresa, cliente, itens] = await Promise.all([
       this.empresaModel.findById(orcamento.empresaId).lean().exec(),
-      this.clienteModel.findById(orcamento.clienteId).lean().exec(),
+      this.clienteModel.findOne({ _id: orcamento.clienteId, empresaId: orcamento.empresaId }).lean().exec(),
       this.itensOrcamentoModel.find({ orcamentoId: orcamento._id }).lean().exec(),
     ]);
 
@@ -104,11 +104,11 @@ export class DocumentosService {
 
     const [empresa, cliente, itens, pagamentos, ordemServicoEntrega] = await Promise.all([
       this.empresaModel.findById(venda.empresaId).lean().exec(),
-      this.clienteModel.findById(venda.clienteId).lean().exec(),
+      this.clienteModel.findOne({ _id: venda.clienteId, empresaId: venda.empresaId }).lean().exec(),
       this.itensVendaModel.find({ vendaId: venda._id }).lean().exec(),
       this.pagamentoModel.find({ vendaId: venda._id }).lean().exec(),
       venda.origemTipo === 'ordem_servico' && venda.origemId
-        ? this.ordemServicoModel.findById(venda.origemId).lean().exec()
+        ? this.ordemServicoModel.findOne({ _id: venda.origemId, empresaId: venda.empresaId }).lean().exec()
         : Promise.resolve(null),
     ]);
 
@@ -173,7 +173,7 @@ export class DocumentosService {
     }
 
     if (!ordemServico && venda?.origemTipo === 'ordem_servico' && venda.origemId) {
-      ordemServico = await this.ordemServicoModel.findById(venda.origemId).lean().exec();
+      ordemServico = await this.ordemServicoModel.findOne({ _id: venda.origemId, empresaId: venda.empresaId }).lean().exec();
     }
 
     const atendimentoEmpresaId = venda?.empresaId || ordemServico?.empresaId;
@@ -182,13 +182,13 @@ export class DocumentosService {
 
     const [empresa, cliente, pagamentos, recebimento, orcamento] = await Promise.all([
       this.empresaModel.findById(atendimentoEmpresaId).lean().exec(),
-      this.clienteModel.findById(atendimentoClienteId).lean().exec(),
+      this.clienteModel.findOne({ _id: atendimentoClienteId, empresaId: atendimentoEmpresaId }).lean().exec(),
       venda ? this.pagamentoModel.find({ vendaId: venda._id }).lean().exec() : Promise.resolve([]),
       ordemServico?.recebimentoEquipamentoId
-        ? this.recebimentoModel.findById(ordemServico.recebimentoEquipamentoId).lean().exec()
+        ? this.recebimentoModel.findOne({ _id: ordemServico.recebimentoEquipamentoId, empresaId: atendimentoEmpresaId }).lean().exec()
         : Promise.resolve(null),
       ordemServico?.orcamentoId
-        ? this.orcamentoModel.findById(ordemServico.orcamentoId).lean().exec()
+        ? this.orcamentoModel.findOne({ _id: ordemServico.orcamentoId, empresaId: atendimentoEmpresaId }).lean().exec()
         : Promise.resolve(null),
     ]);
     const orcamentoAprovadoEm = orcamento
@@ -207,8 +207,8 @@ export class DocumentosService {
       .filter((item) => item.tipo === 'servico' && Types.ObjectId.isValid(String(item.referenciaId)))
       .map((item) => item.referenciaId);
     const [produtos, servicos] = await Promise.all([
-      this.produtoModel.find({ _id: { $in: produtoIds } }).lean().exec(),
-      this.servicoModel.find({ _id: { $in: servicoIds } }).lean().exec(),
+      this.produtoModel.find({ _id: { $in: produtoIds }, empresaId: atendimentoEmpresaId }).lean().exec(),
+      this.servicoModel.find({ _id: { $in: servicoIds }, empresaId: atendimentoEmpresaId }).lean().exec(),
     ]);
     const subtotal = venda?.subtotal ?? orcamento?.subtotal ?? 0;
     const descontos = venda?.descontos ?? orcamento?.descontos ?? 0;
@@ -321,7 +321,7 @@ export class DocumentosService {
 
     const [empresa, cliente, termo] = await Promise.all([
       this.empresaModel.findById(recebimento.empresaId).lean().exec(),
-      this.clienteModel.findById(recebimento.clienteId).lean().exec(),
+      this.clienteModel.findOne({ _id: recebimento.clienteId, empresaId: recebimento.empresaId }).lean().exec(),
       this.termoModel.findOne({ recebimentoEquipamentoId: recebimento._id }).lean().exec(),
     ]);
 

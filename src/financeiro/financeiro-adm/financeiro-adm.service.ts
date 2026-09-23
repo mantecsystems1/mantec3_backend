@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { createHash } from 'crypto';
-import { existsSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import { Model, Types } from 'mongoose';
-import { basename, join } from 'path';
+import { basename } from 'path';
 import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../../auditoria/auditoria-eventos';
 import { Empresa, EmpresaDocument } from '../../core/empresa/schemas/empresa.schema';
@@ -33,6 +33,7 @@ import { RecorrenciaFinanceira, RecorrenciaFinanceiraDocument } from './schemas/
 import { AnexoFinanceiro, AnexoFinanceiroDocument, ANEXO_FINANCEIRO_VINCULO_TIPO } from './schemas/anexo-financeiro.schema';
 import { FechamentoMensalFinanceiro, FechamentoMensalFinanceiroDocument, FECHAMENTO_MENSAL_STATUS } from './schemas/fechamento-mensal-financeiro.schema';
 import { buildSimpleXlsx, createZip, SimpleXlsxSheet, ZipEntry } from './simple-xlsx';
+import { readUploadUrl } from '../../common/uploads/upload-storage';
 import {
   CATEGORIA_FINANCEIRA_CLASSIFICACAO,
   CATEGORIA_FINANCEIRA_TIPO,
@@ -71,6 +72,8 @@ interface RegistrarMovimentoInput {
   origemTipo?: string;
   origemId?: string | Types.ObjectId;
   observacoes?: string;
+  idempotencyKey?: string;
+  idempotencyHash?: string;
 }
 
 interface UpsertTituloIntegracaoInput {
@@ -481,21 +484,32 @@ export class FinanceiroAdmService {
     return titulo;
   }
 
-  async baixarTitulo(id: string, dto: BaixarTituloFinanceiroDto, actorId?: string, actorEmpresaId?: string) {
+  async baixarTitulo(id: string, dto: BaixarTituloFinanceiroDto, actorId?: string, actorEmpresaId?: string, idempotencyKey?: string) {
     const titulo = await this.getTituloDaEmpresa(id, actorEmpresaId);
-    this.assertTituloPodeSerBaixado(titulo);
     const dataPagamento = this.toDate(dto.dataPagamento, 'dataPagamento');
     await this.assertPeriodoFinanceiroAberto(titulo.empresaId.toString(), dataPagamento, 'baixar titulo financeiro');
 
     const valorBaixaCentavos = this.parseValor(dto.valor, 'valor');
+    const conta = await this.getContaDaEmpresa(dto.contaId, actorEmpresaId);
+    await this.assertCategoriaPertenceTipo(titulo.categoriaId.toString(), actorEmpresaId, tituloTipoParaCategoriaTipo(titulo.tipo));
+    const idempotency = this.montarIdempotenciaBaixaTitulo(titulo._id?.toString(), {
+      contaId: conta._id?.toString(),
+      valorCentavos: valorBaixaCentavos,
+      dataPagamento,
+      formaPagamento: dto.formaPagamento,
+      observacoes: dto.observacoes,
+    }, idempotencyKey);
+    const movimentoExistente = await this.getMovimentoIdempotente(titulo.empresaId.toString(), idempotency.key, idempotency.hash);
+    if (movimentoExistente) {
+      return { titulo, movimento: movimentoExistente };
+    }
+
+    this.assertTituloPodeSerBaixado(titulo);
     const valorPagoCentavos = dinheiroParaCentavos(titulo.valorPago);
     const valorTotalCentavos = dinheiroParaCentavos(titulo.valorTotal);
     if (valorPagoCentavos + valorBaixaCentavos > valorTotalCentavos) {
       throw new BadRequestException('Valor da baixa excede o saldo em aberto do titulo.');
     }
-
-    const conta = await this.getContaDaEmpresa(dto.contaId, actorEmpresaId);
-    await this.assertCategoriaPertenceTipo(titulo.categoriaId.toString(), actorEmpresaId, tituloTipoParaCategoriaTipo(titulo.tipo));
 
     const movimento = await this.registrarMovimento({
       empresaId: titulo.empresaId,
@@ -510,6 +524,8 @@ export class FinanceiroAdmService {
       origemTipo: 'titulo_financeiro',
       origemId: titulo._id as Types.ObjectId,
       observacoes: dto.observacoes,
+      idempotencyKey: idempotency.key,
+      idempotencyHash: idempotency.hash,
     }, actorId);
 
     const novoValorPagoCentavos = valorPagoCentavos + valorBaixaCentavos;
@@ -1220,11 +1236,10 @@ export class FinanceiroAdmService {
     ];
 
     for (const anexo of dados.anexos) {
-      const arquivoPath = this.pathArquivoUpload(anexo.urlArquivo);
       const zipName = `anexos/${this.safeZipName(anexo.nomeOriginal || anexo.nomeArquivo || String(anexo._id))}`;
+      const content = await readUploadUrl(anexo.urlArquivo);
 
-      if (arquivoPath && existsSync(arquivoPath)) {
-        const content = readFileSync(arquivoPath);
+      if (content) {
         entries.push({ path: zipName, content });
         arquivosManifesto.push({
           caminho: zipName,
@@ -1692,6 +1707,14 @@ export class FinanceiroAdmService {
       origemTipo: input.origemTipo,
       origemId: input.origemId,
       observacoes: input.observacoes,
+      idempotencyKey: `${input.origemTipo}:${input.origemId}`,
+      idempotencyHash: this.hashJson({
+        contaId: conta._id?.toString(),
+        valorCentavos: valorBaixaCentavos,
+        dataPagamento: this.toDate(input.dataPagamento, 'dataPagamento').toISOString(),
+        formaPagamento: input.formaPagamento,
+        tituloId: input.titulo._id?.toString(),
+      }),
     }, actorId);
 
     const novoValorPagoCentavos = valorPagoCentavos + valorBaixaCentavos;
@@ -1804,21 +1827,33 @@ export class FinanceiroAdmService {
   private async registrarMovimento(input: RegistrarMovimentoInput, actorId?: string) {
     await this.assertPeriodoFinanceiroAberto(input.empresaId.toString(), input.dataMovimento, 'registrar movimento de caixa');
 
-    const movimento = await this.movimentoModel.create({
-      empresaId: this.toObjectId(input.empresaId.toString(), 'empresaId'),
-      contaId: this.toObjectId(input.contaId.toString(), 'contaId'),
-      categoriaId: this.toObjectId(input.categoriaId.toString(), 'categoriaId'),
-      tituloId: input.tituloId ? this.toObjectId(input.tituloId.toString(), 'tituloId') : undefined,
-      tipo: input.tipo,
-      descricao: input.descricao,
-      valor: centavosParaDecimal128(input.valorCentavos),
-      dataMovimento: input.dataMovimento,
-      formaPagamento: input.formaPagamento,
-      status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
-      origemTipo: input.origemTipo,
-      origemId: input.origemId ? this.toObjectId(input.origemId.toString(), 'origemId') : undefined,
-      observacoes: input.observacoes,
-    });
+    let movimento: MovimentoCaixaDocument;
+    try {
+      movimento = await this.movimentoModel.create({
+        empresaId: this.toObjectId(input.empresaId.toString(), 'empresaId'),
+        contaId: this.toObjectId(input.contaId.toString(), 'contaId'),
+        categoriaId: this.toObjectId(input.categoriaId.toString(), 'categoriaId'),
+        tituloId: input.tituloId ? this.toObjectId(input.tituloId.toString(), 'tituloId') : undefined,
+        tipo: input.tipo,
+        descricao: input.descricao,
+        valor: centavosParaDecimal128(input.valorCentavos),
+        dataMovimento: input.dataMovimento,
+        formaPagamento: input.formaPagamento,
+        status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+        origemTipo: input.origemTipo,
+        origemId: input.origemId ? this.toObjectId(input.origemId.toString(), 'origemId') : undefined,
+        observacoes: input.observacoes,
+        idempotencyKey: input.idempotencyKey,
+        idempotencyHash: input.idempotencyHash,
+      });
+    } catch (error) {
+      if (!this.isDuplicateKeyError(error) || !input.idempotencyKey) {
+        throw error;
+      }
+      const existing = await this.getMovimentoIdempotente(input.empresaId.toString(), input.idempotencyKey, input.idempotencyHash);
+      if (!existing) throw error;
+      return existing;
+    }
 
     await this.atualizarSaldoConta(
       input.contaId.toString(),
@@ -1834,6 +1869,50 @@ export class FinanceiroAdmService {
     });
 
     return movimento;
+  }
+
+  private async getMovimentoIdempotente(empresaId: string, key?: string, hash?: string) {
+    if (!key) return null;
+    const movimento = await this.movimentoModel.findOne({
+      empresaId,
+      idempotencyKey: key,
+      status: MOVIMENTO_CAIXA_STATUS.CONFIRMADO,
+    }).exec();
+    if (!movimento) return null;
+    if (movimento.idempotencyHash && hash && movimento.idempotencyHash !== hash) {
+      throw new BadRequestException('Chave de idempotencia ja usada com conteudo diferente.');
+    }
+    return movimento;
+  }
+
+  private montarIdempotenciaBaixaTitulo(tituloId: string | undefined, payload: {
+    contaId?: string;
+    valorCentavos: number;
+    dataPagamento: Date;
+    formaPagamento: string;
+    observacoes?: string;
+  }, key?: string) {
+    const normalizedKey = this.normalizarIdempotencyKey(key) ?? `titulo_financeiro:${tituloId}:${payload.contaId}:${payload.valorCentavos}:${payload.dataPagamento.toISOString()}:${payload.formaPagamento}`;
+    return {
+      key: normalizedKey,
+      hash: this.hashJson({
+        tituloId,
+        contaId: payload.contaId,
+        valorCentavos: payload.valorCentavos,
+        dataPagamento: payload.dataPagamento.toISOString(),
+        formaPagamento: payload.formaPagamento,
+        observacoes: payload.observacoes ?? null,
+      }),
+    };
+  }
+
+  private normalizarIdempotencyKey(key?: string) {
+    const value = String(key ?? '').trim();
+    if (!value) return undefined;
+    if (value.length > 160 || /[\r\n]/.test(value)) {
+      throw new BadRequestException('Chave de idempotencia invalida.');
+    }
+    return value;
   }
 
   private async estornarBaixaTitulo(tituloId: string, valorEstornadoCentavos: number, actorId?: string, actorEmpresaId?: string) {
@@ -1882,13 +1961,14 @@ export class FinanceiroAdmService {
   }
 
   private async atualizarSaldoConta(contaId: string, deltaCentavos: number, empresaId?: string) {
-    const conta = await this.getContaDaEmpresa(contaId, empresaId);
-    const saldoAtualCentavos = dinheiroParaCentavos(conta.saldoAtual);
-    const novoSaldo = saldoAtualCentavos + deltaCentavos;
-
     await this.contaModel
-      .findOneAndUpdate(this.getEmpresaQuery(empresaId, { _id: contaId }), { saldoAtual: centavosParaDecimal128(novoSaldo) }, { new: true })
+      .findOneAndUpdate(this.getEmpresaQuery(empresaId, { _id: contaId }), { $inc: { saldoAtual: centavosParaDecimal128(deltaCentavos) } }, { new: true })
       .exec();
+  }
+
+  private isDuplicateKeyError(error: unknown) {
+    const e = error as { code?: number };
+    return e?.code === 11000;
   }
 
   private montarPeriodoRelatorio(query: RelatorioMensalFinanceiroQueryDto = {}): PeriodoRelatorio {
@@ -1978,15 +2058,6 @@ export class FinanceiroAdmService {
 
   private hashBuffer(buffer: Buffer) {
     return createHash('sha256').update(buffer).digest('hex');
-  }
-
-  private pathArquivoUpload(urlArquivo?: string) {
-    if (!urlArquivo?.startsWith('/uploads/')) {
-      return null;
-    }
-
-    const relative = urlArquivo.replace(/^\/uploads\//, '').replace(/[\\/]+/g, '/');
-    return join(process.cwd(), 'uploads', relative);
   }
 
   private safeZipName(value: string) {

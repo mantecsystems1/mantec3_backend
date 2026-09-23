@@ -7,13 +7,17 @@ describe('EstoqueService', () => {
     const exec = jest.fn().mockResolvedValue(movimentos);
     const find = jest.fn().mockReturnValue({ exec });
 
-    return new EstoqueService({ find } as never, {} as never, {} as never);
+    return new EstoqueService({ find } as never, {} as never, {} as never, {} as never);
   };
 
-  const createServiceWithModel = (movimentos: Array<{ tipo: string; quantidade: number }>) => {
+  const createServiceWithModel = (movimentos: Array<{ tipo: string; quantidade: number }>, saldoUpdateResult: unknown = { _id: 'saldo-1' }) => {
     const exec = jest.fn().mockResolvedValue(movimentos);
     const save = jest.fn().mockResolvedValue({ _id: 'movimento-1' });
     const model = jest.fn().mockImplementation((dto) => ({ ...dto, save }));
+    const saldoModel = {
+      exists: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue({ _id: 'saldo-1' }) }),
+      findOneAndUpdate: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(saldoUpdateResult) }),
+    };
     const produtoModel = {
       findOne: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
@@ -30,7 +34,7 @@ describe('EstoqueService', () => {
       findByIdAndDelete: jest.fn(),
     });
 
-    return { service: new EstoqueService(model as never, produtoModel as never, {} as never), save };
+    return { service: new EstoqueService(model as never, saldoModel as never, produtoModel as never, {} as never), save, saldoModel };
   };
 
   it('permite operacao quando ha saldo disponivel', async () => {
@@ -59,9 +63,9 @@ describe('EstoqueService', () => {
   });
 
   it('bloqueia movimento manual que deixaria estoque negativo', async () => {
-    const { service, save } = createServiceWithModel([
+    const { service, save, saldoModel } = createServiceWithModel([
       { tipo: MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA, quantidade: 2 },
-    ]);
+    ], null);
 
     await expect(service.create({
       produtoId: 'produto-1',
@@ -70,5 +74,15 @@ describe('EstoqueService', () => {
       quantidade: 3,
     } as never, 'user-1', 'empresa-1')).rejects.toBeInstanceOf(BadRequestException);
     expect(save).not.toHaveBeenCalled();
+    expect(saldoModel.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        empresaId: 'empresa-1',
+        produtoId: 'produto-1',
+        saldoFisico: { $gte: 3 },
+        disponivel: { $gte: 3 },
+      }),
+      { $inc: { saldoFisico: -3, disponivel: -3 } },
+      { new: true },
+    );
   });
 });
