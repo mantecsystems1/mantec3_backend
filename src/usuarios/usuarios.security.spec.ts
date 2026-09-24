@@ -12,8 +12,8 @@ describe('Isolamento de usuarios e empresas', () => {
   it('limita lista e busca ao tenant autenticado', async () => {
     await service.findAll(actor);
     await service.findOne('outro-usuario', actor);
-    expect(model.find).toHaveBeenCalledWith({ empresaId: actor.empresaId });
-    expect(model.findOne).toHaveBeenCalledWith({ _id: 'outro-usuario', empresaId: actor.empresaId });
+    expect(model.find).toHaveBeenCalledWith({ empresaId: actor.empresaId, perfil: { $not: /^\s*(?:admin|administrador)\s*$/i } });
+    expect(model.findOne).toHaveBeenCalledWith({ _id: 'outro-usuario', empresaId: actor.empresaId, perfil: { $not: /^\s*(?:admin|administrador)\s*$/i } });
     expect(() => service.findAll()).toThrow(UnauthorizedException);
   });
   it.each(['administrador', 'admin', ' ADMIN '])('rejeita escalacao pelo perfil %s', async perfil => {

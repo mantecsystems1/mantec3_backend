@@ -39,7 +39,7 @@ export class UsuariosService {
   }
 
   findAll(actor?: CurrentUserPayload) {
-    return this.usuarioModel.find(tenantFilter(actor)).populate('empresaId', 'nomeFantasia razaoSocial').exec();
+    return this.usuarioModel.find(this.getVisibleUserQuery(actor)).populate('empresaId', 'nomeFantasia razaoSocial').exec();
   }
 
   findTecnicos(empresaId?: string) {
@@ -57,7 +57,7 @@ export class UsuariosService {
   }
 
   findOne(id: string, actor?: CurrentUserPayload) {
-    return this.usuarioModel.findOne({ _id: id, ...tenantFilter(actor) }).populate('empresaId', 'nomeFantasia razaoSocial').exec();
+    return this.usuarioModel.findOne({ _id: id, ...this.getVisibleUserQuery(actor) }).populate('empresaId', 'nomeFantasia razaoSocial').exec();
   }
 
   findForAuthentication(id: string) {
@@ -97,6 +97,13 @@ export class UsuariosService {
   remove(id: string, actor?: CurrentUserPayload) {
     this.assertNotSelf(id, actor, 'Nao e permitido excluir a propria conta.');
     return this.usuarioModel.findOneAndDelete({ _id: id, ...tenantFilter(actor), ...(!isPlatformAdmin(actor) ? { perfil: { $not: PLATFORM_ROLE } } : {}) }).exec();
+  }
+
+  private getVisibleUserQuery(actor?: CurrentUserPayload): Record<string, unknown> {
+    return {
+      ...tenantFilter(actor),
+      ...(!isPlatformAdmin(actor) ? { perfil: { $not: PLATFORM_ROLE } } : {}),
+    };
   }
 
   private assertSelfAccessSafe(id: string, dto: UpdateUsuarioDto, actor?: CurrentUserPayload) {
