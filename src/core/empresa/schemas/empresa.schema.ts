@@ -39,6 +39,9 @@ export class Empresa {
   @Prop({ required: true })
   telefone: string;
 
+  @Prop()
+  logoUrl?: string;
+
   @Prop({ type: EnderecoSchema, required: true })
   endereco: Endereco;
 

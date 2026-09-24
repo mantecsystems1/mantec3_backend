@@ -11,6 +11,7 @@ type TokenPayload = {
   email: string;
   empresaId: string;
   empresaNome?: string;
+  empresaLogoUrl?: string;
   perfil?: string;
   exp: number;
   tokenVersion: number;
@@ -47,6 +48,7 @@ export class AuthService {
       email: usuario.email,
       empresaId: String(empresa?._id ?? usuario.empresaId),
       empresaNome: empresa?.nomeFantasia ?? empresa?.razaoSocial,
+      empresaLogoUrl: empresa?.logoUrl,
       perfil: (usuario as any).perfil,
       exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS,
       tokenVersion: usuario.tokenVersion ?? 0,
@@ -60,6 +62,7 @@ export class AuthService {
         email: payload.email,
         empresaId: payload.empresaId,
         empresaNome: payload.empresaNome,
+        empresaLogoUrl: payload.empresaLogoUrl,
         perfil: payload.perfil,
       },
     };

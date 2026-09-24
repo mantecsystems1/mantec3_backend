@@ -28,6 +28,22 @@ export class EmpresaController {
     return this.empresaService.findAll(isPlatformAdmin(user) ? undefined : user.empresaId);
   }
 
+  @Get('minha')
+  @RequireEvento(EVENTOS_NEGOCIO.EMPRESA_CONSULTAR)
+  findMinha(@CurrentUser() user: CurrentUserPayload) {
+    tenantFilter(user);
+    return this.empresaService.findOne(user.empresaId);
+  }
+
+  @Patch('minha')
+  @RequireEvento(EVENTOS_NEGOCIO.USUARIO_GERENCIAR)
+  updateMinha(@Body() dto: UpdateEmpresaDto, @CurrentUser() user: CurrentUserPayload) {
+    tenantFilter(user);
+    const updateDto = { ...dto };
+    delete (updateDto as { ativa?: boolean }).ativa;
+    return this.empresaService.update(user.empresaId, updateDto);
+  }
+
   @Get(':id')
   @RequireEvento(EVENTOS_NEGOCIO.EMPRESA_CONSULTAR)
   findOne(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {

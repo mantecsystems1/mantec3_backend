@@ -60,6 +60,10 @@ export class CreateEmpresaDto {
   @IsNotEmpty()
   telefone: string;
 
+  @IsString()
+  @IsOptional()
+  logoUrl?: string;
+
   @IsObject()
   @ValidateNested()
   @Type(() => CreateEnderecoDto)

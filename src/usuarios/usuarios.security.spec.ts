@@ -46,4 +46,14 @@ describe('Isolamento de usuarios e empresas', () => {
     expect(() => controller.findOne('outra', actor)).toThrow(ForbiddenException);
     expect(() => controller.update(actor.empresaId, {}, actor)).toThrow(ForbiddenException);
   });
+
+  it('permite editar a propria empresa sem alterar status de acesso', () => {
+    const empresas = { update: jest.fn(), findOne: jest.fn() };
+    const controller = new EmpresaController(empresas as never);
+    controller.findMinha(actor);
+    controller.updateMinha({ nomeFantasia: 'Minha loja', ativa: false } as never, actor);
+
+    expect(empresas.findOne).toHaveBeenCalledWith(actor.empresaId);
+    expect(empresas.update).toHaveBeenCalledWith(actor.empresaId, { nomeFantasia: 'Minha loja' });
+  });
 });
