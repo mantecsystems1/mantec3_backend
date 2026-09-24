@@ -73,6 +73,7 @@ export class UsuariosService {
   }
 
   async update(id: string, updateUsuarioDto: UpdateUsuarioDto, actor?: CurrentUserPayload) {
+    this.assertSelfAccessSafe(id, updateUsuarioDto, actor);
     this.validateAssignment(updateUsuarioDto, actor);
     const senhaHash =
       updateUsuarioDto.senha || updateUsuarioDto.senhaHash
@@ -94,7 +95,21 @@ export class UsuariosService {
   }
 
   remove(id: string, actor?: CurrentUserPayload) {
+    this.assertNotSelf(id, actor, 'Nao e permitido excluir a propria conta.');
     return this.usuarioModel.findOneAndDelete({ _id: id, ...tenantFilter(actor), ...(!isPlatformAdmin(actor) ? { perfil: { $not: PLATFORM_ROLE } } : {}) }).exec();
+  }
+
+  private assertSelfAccessSafe(id: string, dto: UpdateUsuarioDto, actor?: CurrentUserPayload) {
+    if (dto.ativo === false) {
+      this.assertNotSelf(id, actor, 'Nao e permitido bloquear a propria conta.');
+    }
+  }
+
+  private assertNotSelf(id: string, actor: CurrentUserPayload | undefined, message: string) {
+    const actorIds = [actor?.id, actor?._id, actor?.sub].filter(Boolean).map(String);
+    if (actorIds.includes(String(id))) {
+      throw new ForbiddenException(message);
+    }
   }
 
   private validateAssignment(dto: CreateUsuarioDto | UpdateUsuarioDto, actor?: CurrentUserPayload) {

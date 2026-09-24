@@ -3,7 +3,7 @@ import { UsuariosService } from './usuarios.service';
 import { CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { EmpresaController } from '../core/empresa/empresa.controller';
 
-const actor = { empresaId: '507f1f77bcf86cd799439011', perfil: 'admin_empresa' } as CurrentUserPayload;
+const actor = { id: 'ator', _id: 'ator', sub: 'ator', empresaId: '507f1f77bcf86cd799439011', perfil: 'admin_empresa' } as CurrentUserPayload;
 describe('Isolamento de usuarios e empresas', () => {
   const result = { populate: jest.fn().mockReturnThis(), exec: jest.fn().mockResolvedValue(null) };
   const model = { find: jest.fn(() => result), findOne: jest.fn(() => result), findOneAndUpdate: jest.fn(() => result), findOneAndDelete: jest.fn(() => result) };
@@ -22,6 +22,12 @@ describe('Isolamento de usuarios e empresas', () => {
   });
   it('rejeita transferencia para outra empresa', async () => {
     await expect(service.update('usuario', { empresaId: 'outra' }, actor)).rejects.toThrow(ForbiddenException);
+  });
+  it('impede usuario bloquear ou excluir a propria conta', async () => {
+    await expect(service.update('ator', { ativo: false }, actor)).rejects.toThrow(ForbiddenException);
+    await expect(() => service.remove('ator', actor)).toThrow(ForbiddenException);
+    expect(model.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(model.findOneAndDelete).not.toHaveBeenCalled();
   });
   it('nao altera nem exclui administradores da plataforma e revoga sessoes ao editar', async () => {
     await service.update('usuario', { ativo: false }, actor);
