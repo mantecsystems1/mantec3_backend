@@ -9,6 +9,20 @@ if (!uri) {
 
 const indexes = [
   {
+    collection: 'fiscalEmitterRegistrations',
+    create: [[{ empresaId: 1 }, { unique: true, name: 'empresaId_1' }]],
+  },
+  {
+    collection: 'fiscalSimulationBindings',
+    create: [[{ empresaId: 1 }, { unique: true, name: 'empresaId_1' }],
+      [{ emitterId: 1 }, { unique: true, name: 'emitterId_1' }]],
+  },
+  {
+    collection: 'fiscalSimulations',
+    create: [[{ empresaId: 1, requestId: 1 }, { unique: true, name: 'empresaId_1_requestId_1' }],
+      [{ empresaId: 1, _id: -1 }, { name: 'empresaId_1__id_-1' }]],
+  },
+  {
     collection: 'clientes',
     drop: ['cpfCnpj_1'],
     create: [

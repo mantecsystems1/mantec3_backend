@@ -5,6 +5,11 @@ import { NotaFiscalServicoController } from './nota-fiscal-servico.controller';
 import { NotaFiscalServico, NotaFiscalServicoSchema } from './nota-fiscal-servico.schema';
 import { Venda, VendaSchema } from '../../financeiro/vendas/schemas/venda.schema';
 import { AuditoriaModule } from '../../auditoria/auditoria.module';
+import { FiscalSimulation, FiscalSimulationSchema } from './fiscal-simulation.schema';
+import { FiscalSimulationService } from './fiscal-simulation.service';
+import { FiscalSimulationController } from './fiscal-simulation.controller';
+import { FiscalBinding, FiscalBindingSchema } from './fiscal-binding.schema';
+import { FiscalRegistration, FiscalRegistrationSchema } from './fiscal-registration.schema';
 
 @Module({
   imports: [
@@ -12,10 +17,13 @@ import { AuditoriaModule } from '../../auditoria/auditoria.module';
     MongooseModule.forFeature([
       { name: NotaFiscalServico.name, schema: NotaFiscalServicoSchema },
       { name: Venda.name, schema: VendaSchema },
+      { name: FiscalSimulation.name, schema: FiscalSimulationSchema },
+      { name: FiscalBinding.name, schema: FiscalBindingSchema },
+      { name: FiscalRegistration.name, schema: FiscalRegistrationSchema },
     ]),
   ],
-  controllers: [NotaFiscalServicoController],
-  providers: [NotaFiscalServicoService],
+  controllers: [NotaFiscalServicoController, FiscalSimulationController],
+  providers: [NotaFiscalServicoService, FiscalSimulationService],
   exports: [NotaFiscalServicoService],
 })
 export class NotaFiscalServicoModule {}
