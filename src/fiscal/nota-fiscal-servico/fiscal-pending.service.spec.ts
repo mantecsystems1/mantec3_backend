@@ -58,7 +58,7 @@ describe('company-scoped fiscal pending notices', () => {
   afterEach(() => { process.env = { ...savedEnv }; jest.useRealTimers(); jest.restoreAllMocks(); });
 
   it.each([undefined, { id: 'a' }, { empresaId: 'company-a' }])('requires authenticated user and company before reads: %j', async actor => {
-    await expect(service.pendingStatus(actor as CurrentUserPayload)).rejects.toThrow('Usuario/empresa');
+    await expect(service.pendingStatus(actor as unknown as CurrentUserPayload)).rejects.toThrow('Usuario/empresa');
     expect(companyLookup).not.toHaveBeenCalled(); expect(bindingLookup).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
   });
   it.each(['tecnico', 'gerente', 'fiscal', 'atendente'])('does not disclose management notices to %s', async perfil => {
