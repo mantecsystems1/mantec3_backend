@@ -10,6 +10,7 @@ import { FiscalSimulationService } from './fiscal-simulation.service';
 import { FiscalSimulationController } from './fiscal-simulation.controller';
 import { FiscalBinding, FiscalBindingSchema } from './fiscal-binding.schema';
 import { FiscalRegistration, FiscalRegistrationSchema } from './fiscal-registration.schema';
+import { Empresa, EmpresaSchema } from '../../core/empresa/schemas/empresa.schema';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { FiscalRegistration, FiscalRegistrationSchema } from './fiscal-registrat
       { name: FiscalSimulation.name, schema: FiscalSimulationSchema },
       { name: FiscalBinding.name, schema: FiscalBindingSchema },
       { name: FiscalRegistration.name, schema: FiscalRegistrationSchema },
+      { name: Empresa.name, schema: EmpresaSchema },
     ]),
   ],
   controllers: [NotaFiscalServicoController, FiscalSimulationController],

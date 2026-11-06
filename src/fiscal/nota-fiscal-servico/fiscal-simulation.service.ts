@@ -2,6 +2,7 @@ import { BadGatewayException, BadRequestException, ConflictException, ForbiddenE
 import { FiscalBinding } from './fiscal-binding.schema';
 import { FiscalProfileDto, RegisterFiscalEmitterDto, UploadFiscalCertificateDto } from './fiscal-configuration.dto';
 import { FiscalRegistration } from './fiscal-registration.schema';
+import { Empresa } from '../../core/empresa/schemas/empresa.schema';
 import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -16,7 +17,8 @@ const statuses = new Set(['pending', 'processing', 'reconciliation_required', 's
 export class FiscalSimulationService {
   constructor(@InjectModel(FiscalSimulation.name) private readonly model: Model<FiscalSimulation>,
     @Optional() @InjectModel(FiscalBinding.name) private readonly bindings?: Model<FiscalBinding>,
-    @Optional() @InjectModel(FiscalRegistration.name) private readonly registrations?: Model<FiscalRegistration>) {}
+    @Optional() @InjectModel(FiscalRegistration.name) private readonly registrations?: Model<FiscalRegistration>,
+    @Optional() @InjectModel(Empresa.name) private readonly companies?: Model<Empresa>) {}
 
   private async config(empresaId?: string, candidate?: string) {
     if (!empresaId) throw new UnauthorizedException('Empresa nao informada.');
@@ -167,6 +169,11 @@ export class FiscalSimulationService {
 
   async bindEmitter(emitterId: string, actor?: CurrentUserPayload) {
     const user = this.assertManager(actor, true);
+    return this.bindScopedEmitter(emitterId, user);
+  }
+
+  // Called only by master binding or by the company registration flow after checking ownership.
+  private async bindScopedEmitter(emitterId: string, user: CurrentUserPayload) {
     if (!this.bindings || !uuid.test(emitterId)) throw new BadRequestException('Vinculo fiscal invalido.');
     const config = await this.config(user.empresaId, emitterId);
     let legacy: Record<string, unknown>;
@@ -242,14 +249,27 @@ export class FiscalSimulationService {
   }
 
   async registrationStatus(actor?: CurrentUserPayload) {
-    const user = this.assertManager(actor, true);
+    const user = this.assertManager(actor);
     const item = await this.registrations?.findOne({ empresaId: user.empresaId }).lean().exec();
     return { pending: !!item && !item.emitterId, payload: item?.payload ?? null, completed: !!item?.emitterId, fiscalValidity: false };
   }
 
   async registerEmitter(dto: RegisterFiscalEmitterDto, actor?: CurrentUserPayload) {
-    const user = this.assertManager(actor, true);
+    const user = this.assertManager(actor);
     if (!this.registrations || !this.bindings) throw new ServiceUnavailableException('Cadastro fiscal indisponivel.');
+    if (user.perfil === 'admin_empresa') {
+      if (!this.companies) throw new ServiceUnavailableException('Cadastro da empresa indisponivel.');
+      const company = await this.companies.findOne({ _id: user.empresaId })
+        .select('cnpj razaoSocial endereco.cidade endereco.estado').lean().exec();
+      if (!company) throw new NotFoundException('Empresa nao encontrada.');
+      const normalizeText = (value?: string) => value?.trim().normalize('NFC');
+      if (dto.cnpj !== company.cnpj?.replace(/\D/g, '')
+        || normalizeText(dto.legalName) !== normalizeText(company.razaoSocial)
+        || normalizeText(dto.city)?.toLocaleUpperCase('pt-BR') !== normalizeText(company.endereco?.cidade)?.toLocaleUpperCase('pt-BR')
+        || dto.state !== company.endereco?.estado?.trim().toUpperCase()) {
+        throw new BadRequestException('Use os dados salvos em Dados da empresa para configurar o emitente fiscal.');
+      }
+    }
     // Validate configuration before recording a request. The candidate is only a format placeholder, never transmitted.
     const config = await this.config(user.empresaId, '00000000-0000-4000-8000-000000000000');
     const existingBinding = await this.bindings.findOne({ empresaId: user.empresaId }).lean().exec();
@@ -275,11 +295,11 @@ export class FiscalSimulationService {
       saved = await this.registrations.findOne({ empresaId: user.empresaId }).exec();
     }
     if (!saved || saved.payloadHash !== payloadHash) throw new ConflictException('Cadastro em andamento possui dados diferentes. Recupere a tentativa original.');
-    if (saved.emitterId) return this.bindEmitter(saved.emitterId, user);
+    if (saved.emitterId) return this.bindScopedEmitter(saved.emitterId, user);
     const emitter = await this.remote(config, '/v1/emitters/ensure', { method: 'POST', body: JSON.stringify(saved.payload) });
     if (typeof emitter.id !== 'string' || !uuid.test(emitter.id) || emitter.fiscalReadiness !== 'simulation_only'
       || Object.entries(payload).some(([key, value]) => emitter[key] !== value)) throw new BadGatewayException('Cadastro remoto incompatível.');
-    const result = await this.bindEmitter(emitter.id, user);
+    const result = await this.bindScopedEmitter(emitter.id, user);
     await this.registrations.updateOne({ _id: saved._id, empresaId: user.empresaId }, { $set: { emitterId: emitter.id } }).exec();
     return result;
   }

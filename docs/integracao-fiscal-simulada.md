@@ -127,3 +127,13 @@ Falta vincular/cadastrar o emitente real por empresa pela configuracao fiscal do
 A consulta de perfis sem emitente vinculado agora responde409 com code FISCAL_EMITTER_UNBOUND, somente depois de validar configuracao local de URL/chave/mapa. Configuracao invalida continua503 com FISCAL_CONNECTION_NOT_CONFIGURED. GETconfiguracao adiciona state bound/unbound/unavailable ao enabled existente; este estado descreve configuracao/vinculo, nao comprova disponibilidade remota.
 
 A tela orienta o mestre a cadastrar/vincular emitente quando recebe o codigo exato de ausencia de vinculo, e continua mostrando erro em falhas de rede/autenticacao/configuracao. A mensagem de perfis nao sobrescreve erro ao recuperar cadastro pendente. Vinculo manual de emitente existente aparece como opcao separada. 28 testes unitarios do servico e build backend aprovados.
+
+## Gestao fiscal pela propria empresa — 05/11/2026
+
+Cadastro, perfil e A1 agora ficam em Dados da empresa (/minha-empresa), junto do cadastro geral e usando seu estilo. A pagina Fiscal mantem operacoes/historico e um link para Dados da empresa. O painel utiliza somente os dados da empresa apos GET/PATCH bem-sucedido; alteracoes nao salvas nao alimentam o emitente.
+
+admin_empresa pode consultar/registrar o cadastro fiscal da propria empresa. Antes de qualquer cadastro remoto, o backend le Empresa pelo id da sessao e confere CNPJ normalizado, razao social, cidade/UF com o payload. A empresa nao informa outra empresaId nem vincula um UUID livremente. O vinculo automatico usa o emitente retornado do cadastro validado; o endpoint publico de vinculo manual permanece exclusivo do mestre. Perfis e A1 continuam limitados ao emitente vinculado a empresa da sessao.
+
+Cadastros e certificados existentes nao sao migrados, apagados ou substituidos. Divergencias entre cadastro geral e fiscal sao mostradas para conferencia. O mestre preserva o fluxo de suporte/legado; admin_empresa usa os dados salvos da propria empresa. Perfil e A1 recarregam suas revisoes apos alteracoes para evitar conflitos provocados pela propria tela. Respostas antigas sao invalidadas ao trocar empresa/sessao.
+
+Validacao: 38 testes focados de backend aprovados; integracao real local com Mongo/API/worker passou incluindo auto-cadastro admin_empresa e recuperacao de resposta perdida. Typecheck/build/lint aprovados (21 avisos preexistentes no backend). Frontend build/lint/typecheck e cinco testes existentes aprovados. Testes usam empresas/certificados ficticios; nenhum dado fiscal real foi alterado pelo procedimento.

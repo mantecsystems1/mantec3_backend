@@ -2,7 +2,8 @@ import 'reflect-metadata';
 import { loadEnvFile } from 'node:process';
 import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { createConnection } from 'mongoose';
+import { createConnection, Types } from 'mongoose';
+import { Empresa, EmpresaSchema } from '../src/core/empresa/schemas/empresa.schema';
 import { FiscalSimulation, FiscalSimulationSchema } from '../src/fiscal/nota-fiscal-servico/fiscal-simulation.schema';
 import { FiscalSimulationService } from '../src/fiscal/nota-fiscal-servico/fiscal-simulation.service';
 import { Test } from '@nestjs/testing';
@@ -41,6 +42,7 @@ async function main() {
     const model = connection.model(FiscalSimulation.name, FiscalSimulationSchema);
     const bindings = connection.model(FiscalBinding.name, FiscalBindingSchema);
     const registrations = connection.model(FiscalRegistration.name, FiscalRegistrationSchema);
+    const companies = connection.model(Empresa.name, EmpresaSchema);
     await registrations.init();
     await bindings.init();
     await model.init();
@@ -101,10 +103,13 @@ async function main() {
       digits.push(remainder < 2 ? 0 : 11 - remainder);
     }
     const registration = { cnpj: digits.join(''), legalName: 'Emitente ficticio teste configuracao ERP', city: 'Matao', state: 'SP' };
-    const configured = new FiscalSimulationService(model, bindings, registrations);
     const master = { id: 'test-master', empresaId: '000000000000000000000002', perfil: 'administrador' } as CurrentUserPayload;
     const manager = { ...master, id: 'test-manager', perfil: 'admin_empresa' };
-    await assert.rejects(configured.registerEmitter(registration, manager), /Somente administrador/);
+    await companies.create({ _id: new Types.ObjectId(master.empresaId), cnpj: registration.cnpj, razaoSocial: registration.legalName,
+      nomeFantasia: 'Empresa ficticia ERP', email: 'ficticio@example.invalid', telefone: '16000000000',
+      endereco: { cidade: registration.city, estado: registration.state, logradouro: 'Rua ficticia', numero: '1', bairro: 'Teste', cep: '00000000' } });
+    const configured = new FiscalSimulationService(model, bindings, registrations, companies);
+    await assert.rejects(configured.registerEmitter({ ...registration, cnpj: '11222333000181' }, manager), /dados salvos/);
     await assert.rejects(configured.registerEmitter({ ...registration, cnpj: '11111111111111' }, master), /CNPJ invalido/);
     const actualFetch = globalThis.fetch;
     try {
@@ -113,14 +118,16 @@ async function main() {
         if (String(input).endsWith('/v1/emitters/ensure')) { await result.text(); throw new Error('Synthetic response loss'); }
         return result;
       };
-      await assert.rejects(configured.registerEmitter(registration, master), /Nao foi possivel/);
+      await assert.rejects(configured.registerEmitter(registration, manager), /Nao foi possivel/);
     } finally { globalThis.fetch = actualFetch; }
     assert.equal((await configured.registrationStatus(master)).pending, true);
     await assert.rejects(configured.registerEmitter({ ...registration, city: 'Outro municipio' }, master), /dados diferentes/);
-    await configured.registerEmitter(registration, master);
-    await new FiscalSimulationService(model, bindings, registrations).registerEmitter(registration, master);
+    await configured.registerEmitter(registration, manager);
+    await new FiscalSimulationService(model, bindings, registrations, companies).registerEmitter(registration, manager);
     assert.equal(await registrations.countDocuments(), 1);
     assert.equal((await configured.registrationStatus(master)).completed, true);
+    assert.equal((await configured.registrationStatus(manager)).completed, true);
+    assert.equal((await configured.registrationStatus({ ...manager, empresaId: '000000000000000000000004' })).payload, null);
     const newEmitter = { id: (await bindings.findOne({ empresaId: master.empresaId }).orFail()).emitterId };
     await assert.rejects(configured.bindEmitter(newEmitter.id, manager), /Somente administrador/);
     await configured.bindEmitter(newEmitter.id, master);
@@ -146,7 +153,7 @@ async function main() {
       status: result.status, fiscalValidity: false, foreignCompanyBlocked: true,
       receiptStable: true, offlineDownload: true, tamperRejected: true, historyPagination: true,
       bindingPermissions: true, duplicateBindingRejected: true, versionedProfiles: true,
-      emitterRegistrationRecoveredAfterLostResponse: true, certificateMetadataIsolated: true }));
+      emitterRegistrationRecoveredAfterLostResponse: true, certificateMetadataIsolated: true, companyOwnedOnboarding: true }));
   } finally {
     if (connection.name === database && database.startsWith('fiscal_bridge_test_')) await connection.dropDatabase();
     await connection.close();
