@@ -35,6 +35,22 @@ describe('ERP fiscal simulation bridge', () => {
   afterEach(() => { process.env = { ...savedEnv }; jest.restoreAllMocks(); });
 
   const manager = { id: 'test-manager', empresaId: 'a', perfil: 'admin_empresa' } as CurrentUserPayload;
+  it('distinguishes initial missing binding from broken connection settings without remote calls', async () => {
+    process.env.FISCAL_SIMULATION_EMITTERS_JSON = '{}';
+    await expect(service.availability('a')).resolves.toMatchObject({ enabled: false, state: 'unbound' });
+    await expect(service.fiscalProfiles(manager)).rejects.toMatchObject({ response: { code: 'FISCAL_EMITTER_UNBOUND' } });
+    delete process.env.FISCAL_API_KEY;
+    await expect(service.availability('a')).resolves.toMatchObject({ enabled: false, state: 'unavailable' });
+    await expect(service.fiscalProfiles(manager)).rejects.toMatchObject({ response: { code: 'FISCAL_CONNECTION_NOT_CONFIGURED' } });
+    process.env.FISCAL_API_KEY = 'synthetic-service-key'; process.env.FISCAL_API_URL = 'http://external.invalid';
+    await expect(service.availability('a')).resolves.toMatchObject({ enabled: false, state: 'unavailable' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('reports a bound configuration but still exposes upstream failures', async () => {
+    await expect(service.availability('a')).resolves.toMatchObject({ enabled: true, state: 'bound' });
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    await expect(service.fiscalProfiles(manager)).rejects.toThrow('Nao foi possivel');
+  });
   it.each(['valid', 'expiring', 'expired', 'not_yet_valid', 'disabled'])('exposes only certificate dates and status for %s', async state => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ revision: 0, state, daysRemaining: 10, officialReady: false,
       current: { validFrom: '2026-01-01T00:00:00Z', validTo: '2027-01-01T00:00:00Z', privateKey: 'DO_NOT_EXPOSE', subject: 'personal-data' },

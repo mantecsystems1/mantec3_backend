@@ -121,3 +121,9 @@ Validação adicional concluída: 10 testes de integração de certificados da A
 Backend configurado na stack mantec3 para FISCAL_API_URL=https://fiscal.portalmantec.com.br e FISCAL_SIMULATION_ENABLED=true. Credencial recebida exclusivamente via FISCAL_API_KEY_FILE=/run/secrets/fiscal-api-key, Docker Secret fiscal_erp_api_key_v1. A chave original e os hashes foram conferidos no servidor; nenhum valor foi gravado neste documento. Backup da stack anterior em diretorio root-only. O servico usa usuario node (UID 1000), que recebe permissao de leitura do secret.
 
 Falta vincular/cadastrar o emitente real por empresa pela configuracao fiscal do ERP antes de simular; a conexao de servico nao cria empresas nem autoriza emissao oficial. Apenas administrador mestre pode preparar esse cadastro/vinculo. Dados e perfis fiscais ficam por emitente. Validacao local: 26 testes unitarios do servico e build aprovados. A API exige TLS e mantem modo simulado.
+
+## Cadastro inicial sem falso erro — 05/11/2026
+
+A consulta de perfis sem emitente vinculado agora responde409 com code FISCAL_EMITTER_UNBOUND, somente depois de validar configuracao local de URL/chave/mapa. Configuracao invalida continua503 com FISCAL_CONNECTION_NOT_CONFIGURED. GETconfiguracao adiciona state bound/unbound/unavailable ao enabled existente; este estado descreve configuracao/vinculo, nao comprova disponibilidade remota.
+
+A tela orienta o mestre a cadastrar/vincular emitente quando recebe o codigo exato de ausencia de vinculo, e continua mostrando erro em falhas de rede/autenticacao/configuracao. A mensagem de perfis nao sobrescreve erro ao recuperar cadastro pendente. Vinculo manual de emitente existente aparece como opcao separada. 28 testes unitarios do servico e build backend aprovados.

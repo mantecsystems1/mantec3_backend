@@ -34,15 +34,23 @@ export class FiscalSimulationService {
       const bindings: unknown = JSON.parse(process.env.FISCAL_SIMULATION_EMITTERS_JSON ?? '{}');
       if (!key || !bindings || typeof bindings !== 'object' || Array.isArray(bindings)) throw new Error();
       const emitterId: unknown = candidate ?? stored?.emitterId ?? (bindings as Record<string, unknown>)[empresaId];
+      if (emitterId === undefined || emitterId === null) throw new ConflictException({
+        code: 'FISCAL_EMITTER_UNBOUND',
+        message: 'Simulacao fiscal nao configurada para esta empresa: cadastre ou vincule o emitente.',
+      });
       if (typeof emitterId !== 'string' || !uuid.test(emitterId)) throw new Error();
       return { base, key, emitterId, empresaId };
-    } catch { throw new ServiceUnavailableException('Simulacao fiscal nao configurada para esta empresa.'); }
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      throw new ServiceUnavailableException({ code: 'FISCAL_CONNECTION_NOT_CONFIGURED',
+        message: 'Simulacao fiscal nao configurada para esta empresa.' });
+    }
   }
 
   async availability(empresaId?: string) {
     if (!empresaId) throw new UnauthorizedException('Empresa nao informada.');
-    try { await this.config(empresaId); return { enabled: true, fiscalValidity: false }; }
-    catch { return { enabled: false, fiscalValidity: false }; }
+    try { await this.config(empresaId); return { enabled: true, state: 'bound', fiscalValidity: false }; }
+    catch (error) { return { enabled: false, state: error instanceof ConflictException ? 'unbound' : 'unavailable', fiscalValidity: false }; }
   }
 
   async history(empresaId?: string, before?: string) {
