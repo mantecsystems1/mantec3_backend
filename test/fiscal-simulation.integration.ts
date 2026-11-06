@@ -109,6 +109,9 @@ async function main() {
       nomeFantasia: 'Empresa ficticia ERP', email: 'ficticio@example.invalid', telefone: '16000000000',
       endereco: { cidade: registration.city, estado: registration.state, logradouro: 'Rua ficticia', numero: '1', bairro: 'Teste', cep: '00000000' } });
     const configured = new FiscalSimulationService(model, bindings, registrations, companies);
+    const beforeRegistration = await configured.pendingStatus(manager);
+    assert.equal(beforeRegistration.state, 'pending');
+    assert.deepEqual(beforeRegistration.items.map(item => item.code), ['FISCAL_EMITTER_UNBOUND']);
     await assert.rejects(configured.registerEmitter({ ...registration, cnpj: '11222333000181' }, manager), /dados salvos/);
     await assert.rejects(configured.registerEmitter({ ...registration, cnpj: '11111111111111' }, master), /CNPJ invalido/);
     const actualFetch = globalThis.fetch;
@@ -127,6 +130,9 @@ async function main() {
     assert.equal(await registrations.countDocuments(), 1);
     assert.equal((await configured.registrationStatus(master)).completed, true);
     assert.equal((await configured.registrationStatus(manager)).completed, true);
+    const afterRegistration = await configured.pendingStatus(manager);
+    assert.equal(afterRegistration.state, 'pending');
+    assert.deepEqual(afterRegistration.items.map(item => item.code).sort(), ['CERTIFICATE_MISSING', 'FISCAL_PROFILE_MISSING']);
     assert.equal((await configured.registrationStatus({ ...manager, empresaId: '000000000000000000000004' })).payload, null);
     const newEmitter = { id: (await bindings.findOne({ empresaId: master.empresaId }).orFail()).emitterId };
     await assert.rejects(configured.bindEmitter(newEmitter.id, manager), /Somente administrador/);
@@ -147,13 +153,18 @@ async function main() {
     await assert.rejects(configured.fiscalProfiles(other), /nao configurada/);
     const certificate = await configured.certificateStatus(manager);
     assert.equal(certificate.state, 'missing'); assert.equal(certificate.officialReady, false);
+    const pending = await configured.pendingStatus(manager);
+    assert.equal(pending.state, 'pending');
+    assert.deepEqual(pending.items.map(item => item.code), ['CERTIFICATE_MISSING']);
+    assert.equal(pending.officialRegistrationVerified, false);
     await assert.rejects(configured.certificateStatus(other), /nao configurada/);
     await assert.rejects(configured.certificateStatus({ ...manager, perfil: 'tecnico' }), /Somente administrador/);
     console.log(JSON.stringify({ result: 'ok', concurrentRequests: 5, localRecords: 1, restartReplay: true,
       status: result.status, fiscalValidity: false, foreignCompanyBlocked: true,
       receiptStable: true, offlineDownload: true, tamperRejected: true, historyPagination: true,
       bindingPermissions: true, duplicateBindingRejected: true, versionedProfiles: true,
-      emitterRegistrationRecoveredAfterLostResponse: true, certificateMetadataIsolated: true, companyOwnedOnboarding: true }));
+      emitterRegistrationRecoveredAfterLostResponse: true, certificateMetadataIsolated: true, companyOwnedOnboarding: true,
+      fiscalPendingTracksSavedConfiguration: true }));
   } finally {
     if (connection.name === database && database.startsWith('fiscal_bridge_test_')) await connection.dropDatabase();
     await connection.close();

@@ -12,6 +12,12 @@ import { FiscalSimulationService } from './fiscal-simulation.service';
 @UseGuards(AuthTokenGuard, PermissionGuard)
 export class FiscalSimulationController {
   constructor(private readonly service: FiscalSimulationService) {}
+  @Get('configuracao/pendencias')
+  @RequireEvento(EVENTOS_NEGOCIO.NOTA_FISCAL_CONSULTAR)
+  pending(@CurrentUser() user?: CurrentUserPayload, @Res({ passthrough: true }) res?: Response) {
+    res?.setHeader('Cache-Control', 'no-store');
+    return this.service.pendingStatus(user);
+  }
   @Post('configuracao/certificado')
   @RequireEvento(EVENTOS_NEGOCIO.NOTA_FISCAL_EMITIR)
   uploadCertificate(@Body() dto: UploadFiscalCertificateDto, @CurrentUser() user?: CurrentUserPayload) {

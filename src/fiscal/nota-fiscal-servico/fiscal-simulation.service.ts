@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { FiscalSimulation, FiscalSimulationDocument } from './fiscal-simulation.schema';
+import { companyPendingItems, hasCurrentFiscalProfile, pendingItem, sameFiscalIdentity, type FiscalPendingItem } from './fiscal-pending';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const statuses = new Set(['pending', 'processing', 'reconciliation_required', 'simulated_authorized', 'simulated_rejected', 'technical_failure']);
@@ -226,6 +227,10 @@ export class FiscalSimulationService {
     const user = this.assertManager(actor);
     const config = await this.config(user.empresaId);
     const data = await this.remote(config, `/v1/emitters/${config.emitterId}/certificate-status`);
+    return this.certificateView(data);
+  }
+
+  private certificateView(data: Record<string, unknown>) {
     const states = ['missing', 'disabled', 'expired', 'not_yet_valid', 'expiring', 'valid'];
     if (!Number.isSafeInteger(data.revision) || (data.revision as number) < 0 || typeof data.state !== 'string' || !states.includes(data.state) || data.officialReady !== false) {
       throw new BadGatewayException('Resposta de certificado invalida.');
@@ -246,6 +251,76 @@ export class FiscalSimulationService {
     return { revision: data.revision as number, state: data.state, daysRemaining: data.daysRemaining as number,
       validFrom: new Date(current.validFrom).toISOString(), validTo: new Date(current.validTo).toISOString(),
       officialReady: false, revocationChecked: false };
+  }
+
+  async pendingStatus(actor?: CurrentUserPayload) {
+    const user = this.assertManager(actor);
+    const checkedAt = new Date().toISOString();
+    const items: FiscalPendingItem[] = [];
+    let unavailable = false;
+    const result = () => ({ state: unavailable ? 'unavailable' : items.length ? 'pending' : 'clear',
+      pendingCount: items.length, items, checkedAt, officialRegistrationVerified: false });
+    if (!this.companies) { unavailable = true; return result(); }
+    const company = await this.companies.findOne({ _id: user.empresaId })
+      .select('nomeFantasia razaoSocial cnpj email telefone endereco').lean().exec();
+    if (!company) {
+      items.push(pendingItem('COMPANY_MISSING', 'Cadastro da empresa não encontrado',
+        'Peça ao administrador mestre para conferir o vínculo da sua empresa.', 'error'));
+      return result();
+    }
+    items.push(...companyPendingItems(company));
+    let config: Awaited<ReturnType<FiscalSimulationService['config']>>;
+    try { config = await this.config(user.empresaId); }
+    catch (error) {
+      if (error instanceof ConflictException) items.push(pendingItem('FISCAL_EMITTER_UNBOUND', 'Cadastro fiscal não concluído',
+        'Cadastre ou recupere o emitente em Dados da empresa para preparar a integração fiscal.'));
+      else unavailable = true;
+      return result();
+    }
+    const checks = await Promise.allSettled([
+      this.remote(config, `/v1/emitters/${config.emitterId}`),
+      this.remote(config, `/v1/emitters/${config.emitterId}/fiscal-profiles`),
+      this.remote(config, `/v1/emitters/${config.emitterId}/certificate-status`),
+    ]);
+    // Concurrent changes must not be interpreted as a coherent snapshot.
+    const revisions = checks.filter(r => r.status === 'fulfilled').map(r => r.value.revision);
+    if (revisions.some(revision => !Number.isSafeInteger(revision) || (revision as number) < 0)
+      || new Set(revisions).size > 1) { unavailable = true; return result(); }
+    const [emitter, profiles, certificate] = checks;
+    if (emitter.status === 'fulfilled') {
+      const data = emitter.value;
+      if (data.id !== config.emitterId || data.fiscalReadiness !== 'simulation_only'
+        || ['cnpj', 'legalName', 'city', 'state'].some(field => typeof data[field] !== 'string')) unavailable = true;
+      else if (!sameFiscalIdentity(company, data)) items.push(pendingItem('FISCAL_IDENTITY_MISMATCH', 'Dados gerais e fiscais divergentes',
+        'Confira CNPJ, razão social, cidade e UF. O cadastro fiscal existente não é substituído automaticamente.', 'error'));
+    } else unavailable = true;
+    if (profiles.status === 'fulfilled') {
+      try {
+        // Calendar reference used by the ERP: Brasília, without converting profile dates to instants.
+        const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' })
+          .formatToParts(new Date(checkedAt));
+        const part = (type: string) => parts.find(p => p.type === type)!.value;
+        const today = `${part('year')}-${part('month')}-${part('day')}`;
+        if (!hasCurrentFiscalProfile(profiles.value, today)) items.push(pendingItem('FISCAL_PROFILE_MISSING', 'Perfil tributário vigente não cadastrado',
+          'Informe o regime tributário, município e início de vigência em Dados da empresa. Confirme esses dados com seu contador.'));
+      } catch { unavailable = true; }
+    } else unavailable = true;
+    if (certificate.status === 'fulfilled') {
+      try {
+        const status = this.certificateView(certificate.value);
+        const messages: Record<string, [string, string]> = {
+          missing: ['Certificado A1 não cadastrado', 'Envie o certificado A1 da empresa em Dados da empresa.'],
+          disabled: ['Certificado A1 desativado', 'Confira o certificado da empresa e cadastre um A1 habilitado.'],
+          expired: ['Certificado A1 vencido', 'Renove o certificado e envie o novo arquivo em Dados da empresa.'],
+          not_yet_valid: ['Certificado A1 ainda fora da validade', 'Confira a data inicial de validade do certificado cadastrado.'],
+          expiring: ['Certificado A1 próximo do vencimento', 'Programe a renovação e atualize o certificado em Dados da empresa.'],
+        };
+        const message = messages[status.state];
+        if (message) items.push(pendingItem(`CERTIFICATE_${status.state.toUpperCase()}`, ...message,
+          ['expired', 'disabled'].includes(status.state) ? 'error' : 'warning'));
+      } catch { unavailable = true; }
+    } else unavailable = true;
+    return result();
   }
 
   async registrationStatus(actor?: CurrentUserPayload) {
