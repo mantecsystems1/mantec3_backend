@@ -31,6 +31,15 @@ describe('Fluxo operacional (e2e)', () => {
     reservado: 1,
     disponivel: 4,
   };
+  const usuarioE2e = {
+    id: 'user-e2e',
+    _id: 'user-e2e',
+    sub: 'user-e2e',
+    nome: 'Usuario E2E',
+    email: 'usuario.e2e@mantec.local',
+    empresaId: 'empresa-e2e',
+    perfil: 'admin',
+  };
 
   const orcamentosService = {
     update: jest.fn(),
@@ -218,15 +227,7 @@ describe('Fluxo operacional (e2e)', () => {
       .useValue({
         canActivate: (context) => {
           const requestContext = context.switchToHttp().getRequest();
-          requestContext.user = {
-            id: 'user-e2e',
-            _id: 'user-e2e',
-            sub: 'user-e2e',
-            nome: 'Usuario E2E',
-            email: 'usuario.e2e@mantec.local',
-            empresaId: 'empresa-e2e',
-            perfil: 'admin',
-          };
+          requestContext.user = usuarioE2e;
           return true;
         },
       })
@@ -290,16 +291,16 @@ describe('Fluxo operacional (e2e)', () => {
         disponivel: 4,
       });
 
-    expect(orcamentosService.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.ENVIADO }, 'empresa-e2e');
-    expect(orcamentosService.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.APROVADO }, 'empresa-e2e');
-    expect(osService.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.EM_DIAGNOSTICO }, 'empresa-e2e');
-    expect(osService.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.EM_EXECUCAO }, 'empresa-e2e');
+    expect(orcamentosService.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.ENVIADO }, 'empresa-e2e', usuarioE2e);
+    expect(orcamentosService.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.APROVADO }, 'empresa-e2e', usuarioE2e);
+    expect(osService.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.EM_DIAGNOSTICO }, 'empresa-e2e', usuarioE2e);
+    expect(osService.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.EM_EXECUCAO }, 'empresa-e2e', usuarioE2e);
     expect(osService.reservarPeca).toHaveBeenCalledWith({
       ordemServicoId: 'os-1',
       produtoId: 'produto-1',
       quantidade: 1,
-    }, 'empresa-e2e');
-    expect(osService.consumirReserva).toHaveBeenCalledWith('reserva-1', 'empresa-e2e');
+    }, 'empresa-e2e', usuarioE2e);
+    expect(osService.consumirReserva).toHaveBeenCalledWith('reserva-1', 'empresa-e2e', usuarioE2e);
     expect(estoqueService.getDisponibilidadeProduto).toHaveBeenCalledWith('produto-1', 'empresa-e2e');
   });
 
@@ -515,7 +516,7 @@ describe('Fluxo operacional (e2e)', () => {
       quantidade: 1,
       valorUnitario: '250.00',
       totalItem: '250.00',
-    }, 'empresa-e2e');
+    }, 'empresa-e2e', 'user-e2e');
     expect(pagamentosService.create).toHaveBeenCalledWith(
       {
         vendaId: 'venda-1',
