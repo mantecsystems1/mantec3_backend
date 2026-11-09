@@ -52,7 +52,9 @@ describe('FinanceiroAdmService', () => {
       findOneAndUpdate: jest.fn(),
     };
     const movimentoModel = {
+      db: { transaction: (work: () => Promise<unknown>) => work() },
       create: jest.fn(),
+      countDocuments: jest.fn().mockReturnValue(execResult(0)),
       find: jest.fn(),
       findOne: jest.fn(),
       findOneAndUpdate: jest.fn(),

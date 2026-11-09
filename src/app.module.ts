@@ -29,6 +29,7 @@ import { PermissionGuard } from './common/guards/permission.guard';
 import { SimpleRateLimitGuard } from './common/guards/simple-rate-limit.guard';
 import { PrivateUploadsModule } from './common/uploads/private-uploads.module';
 import { MongooseExceptionFilter } from './common/filters/mongoose-exception.filter';
+import { AtendimentosModule } from './atendimentos/atendimentos.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { MongooseExceptionFilter } from './common/filters/mongoose-exception.fil
     PortalClienteModule,
     DocumentosModule,
     PrivateUploadsModule,
+    AtendimentosModule,
   ],
   controllers: [AppController],
   providers: [

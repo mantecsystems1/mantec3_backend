@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@n
 import { EmpresaService } from './empresa.service';
 import { CreateEmpresaDto } from './dto/create-empresa.dto';
 import { UpdateEmpresaDto } from './dto/update-empresa.dto';
+import { UpdatePixEmpresaDto } from './dto/update-pix-empresa.dto';
 import { AuthTokenGuard } from '../../common/guards/auth-token.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RequireEvento } from '../../common/decorators/require-evento.decorator';
@@ -50,6 +51,20 @@ export class EmpresaController {
     tenantFilter(user);
     if (!isPlatformAdmin(user) && id !== user.empresaId) requirePlatformAdmin(user);
     return this.empresaService.findOne(id);
+  }
+
+  @Patch('minha/pix')
+  @RequireEvento(EVENTOS_NEGOCIO.USUARIO_GERENCIAR)
+  updatePixMinha(@Body() dto: UpdatePixEmpresaDto, @CurrentUser() user: CurrentUserPayload) {
+    tenantFilter(user);
+    return this.empresaService.updatePix(user.empresaId, dto, user);
+  }
+
+  @Patch(':id/pix')
+  @RequireEvento(EVENTOS_NEGOCIO.EMPRESA_GERENCIAR)
+  updatePix(@Param('id') id: string, @Body() dto: UpdatePixEmpresaDto, @CurrentUser() user: CurrentUserPayload) {
+    requirePlatformAdmin(user);
+    return this.empresaService.updatePix(id, dto, user);
   }
 
   @Patch(':id')

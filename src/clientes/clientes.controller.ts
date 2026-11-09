@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ClientesService } from './clientes.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
@@ -30,6 +30,12 @@ export class ClientesController {
   @ApiResponse({ status: 200, description: 'Lista de clientes.' })
   findAll(@CurrentUser() user?: CurrentUserPayload) {
     return this.clientesService.findAll(user?.empresaId);
+  }
+
+  @Get('possiveis-duplicados')
+  @RequireEvento(EVENTOS_NEGOCIO.CLIENTE_CRIAR)
+  verificarPossiveisDuplicados(@Query() query: { cpfCnpj?: string; nome?: string; telefone?: string }, @CurrentUser() user?: CurrentUserPayload) {
+    return this.clientesService.verificarPossiveisDuplicados(query, user?.empresaId);
   }
 
   @Get(':id')

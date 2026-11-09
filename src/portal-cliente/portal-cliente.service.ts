@@ -5,10 +5,14 @@ import { createHash, randomBytes } from 'crypto';
 import { Model, Types } from 'mongoose';
 import { Cliente, ClienteDocument } from '../clientes/schemas/cliente.schema';
 import { Empresa, EmpresaDocument } from '../core/empresa/schemas/empresa.schema';
+import { getPixEmpresaPublico } from '../core/empresa/pix-empresa';
 import { Pagamento, PagamentoDocument } from '../financeiro/pagamentos/schemas/pagamento.schema';
 import { Produto, ProdutoDocument } from '../catalogo/produtos/schemas/produto.schema';
 import { Servico, ServicoDocument } from '../catalogo/servicos/schemas/servico.schema';
 import { Venda, VendaDocument } from '../financeiro/vendas/schemas/venda.schema';
+import { calcularStatusFinanceiroVenda, VENDA_STATUS_FINANCEIRO } from '../financeiro/vendas/venda-financeiro.states';
+import { listarPagamentosValidos } from '../financeiro/vendas/venda-pagamentos-validos';
+import { dinheiroParaCentavos } from '../financeiro/financeiro-adm/financeiro-adm.types';
 import { Garantia, GarantiaDocument } from '../garantias/schemas/garantia.schema';
 import { Orcamento, OrcamentoDocument } from '../orcamentos/schemas/orcamento.schema';
 import { ItensOrcamento, ItensOrcamentoDocument } from '../orcamentos/schemas/itens-orcamento.schema';
@@ -94,13 +98,13 @@ export class PortalClienteService {
       this.clienteModel.findOne({ _id: clienteObjectId, empresaId: empresaObjectId }).lean().exec(),
       this.orcamentoModel
         .find({ clienteId: clienteObjectId, empresaId: empresaObjectId })
-        .populate('recebimentoEquipamentoId', 'tipoEquipamento marca modelo imeiOuSerial')
+        .populate({ path: 'recebimentoEquipamentoId', select: 'tipoEquipamento marca modelo imeiOuSerial', match: { empresaId: empresaObjectId } })
         .sort({ criadoEm: -1 })
         .lean()
         .exec(),
       this.ordemServicoModel
         .find({ clienteId: clienteObjectId, empresaId: empresaObjectId })
-        .populate('recebimentoEquipamentoId', 'tipoEquipamento marca modelo imeiOuSerial observacoesGerais')
+        .populate({ path: 'recebimentoEquipamentoId', select: 'tipoEquipamento marca modelo imeiOuSerial observacoesGerais', match: { empresaId: empresaObjectId } })
         .sort({ criadoEm: -1 })
         .lean()
         .exec(),
@@ -111,8 +115,8 @@ export class PortalClienteService {
         .exec(),
       this.garantiaModel
         .find({ clienteId: clienteObjectId, empresaId: empresaObjectId })
-        .populate('produtoId', 'nome codigoInterno')
-        .populate('fornecedorId', 'nome')
+        .populate({ path: 'produtoId', select: 'nome codigoInterno', match: { empresaId: empresaObjectId } })
+        .populate({ path: 'fornecedorId', select: 'nome', match: { empresaId: empresaObjectId } })
         .sort({ criadoEm: -1 })
         .lean()
         .exec(),
@@ -125,10 +129,16 @@ export class PortalClienteService {
     const orcamentoIds = orcamentos.map((orcamento) => orcamento._id as Types.ObjectId);
     const ordemServicoIds = ordensServico.map((ordem) => ordem._id as Types.ObjectId);
     const vendaIds = vendas.map((venda) => venda._id as Types.ObjectId);
-    const [itensOrcamento, pagamentos] = await Promise.all([
+    const [itensOrcamento, pagamentosPorVenda] = await Promise.all([
       this.itensOrcamentoModel.find({ orcamentoId: { $in: orcamentoIds } }).lean().exec(),
-      this.pagamentoModel.find({ vendaId: { $in: vendaIds } }).lean().exec(),
+      Promise.all(vendas.map((venda) => listarPagamentosValidos(this.vendaModel.db, String(venda._id), payload.empresaId))),
     ]);
+    const pagamentos = pagamentosPorVenda.flat();
+    const vendasFinanceiras = vendas.map((venda, index) => {
+      const totalPago = pagamentosPorVenda[index].reduce((sum, pagamento) => sum + dinheiroParaCentavos(pagamento.valor), 0) / 100;
+      return { ...venda, totalPago, statusFinanceiro: venda.statusFinanceiro === VENDA_STATUS_FINANCEIRO.CANCELADO
+        ? VENDA_STATUS_FINANCEIRO.CANCELADO : calcularStatusFinanceiroVenda(venda.total, totalPago) };
+    });
     const produtoIds = itensOrcamento
       .filter((item) => item.tipo === 'produto' && Types.ObjectId.isValid(String(item.referenciaId)))
       .map((item) => item.referenciaId);
@@ -136,8 +146,8 @@ export class PortalClienteService {
       .filter((item) => item.tipo === 'servico' && Types.ObjectId.isValid(String(item.referenciaId)))
       .map((item) => item.referenciaId);
     const [produtos, servicos] = await Promise.all([
-      this.produtoModel.find({ _id: { $in: produtoIds } }).lean().exec(),
-      this.servicoModel.find({ _id: { $in: servicoIds } }).lean().exec(),
+      this.produtoModel.find({ _id: { $in: produtoIds }, empresaId: empresaObjectId }).lean().exec(),
+      this.servicoModel.find({ _id: { $in: servicoIds }, empresaId: empresaObjectId }).lean().exec(),
     ]);
     const timeline = await this.getTimelinePublica({
       empresaId: empresaObjectId,
@@ -148,7 +158,7 @@ export class PortalClienteService {
     });
     const timelineCompleta = this.mergeTimelinePublica(
       timeline,
-      this.getTimelineSintetica({ orcamentos, ordensServico, vendas, garantias }),
+      this.getTimelineSintetica({ orcamentos, ordensServico, vendas: vendasFinanceiras, garantias }),
     );
     const orcamentoAprovadoEmPorId = this.getOrcamentosAprovadosEm(timelineCompleta);
     const portalOrcamentos = orcamentos.map((orcamento) => ({
@@ -175,7 +185,7 @@ export class PortalClienteService {
       equipamento: this.getEquipamentoDescricao(ordem.recebimentoEquipamentoId),
       problemaRelatado: this.getRecebimentoObservacao(ordem.recebimentoEquipamentoId),
     }));
-    const portalVendas = vendas.map((venda) => ({
+    const portalVendas = vendasFinanceiras.map((venda) => ({
       ...this.toPlain(venda),
       id: String(venda._id),
       total: this.decimalToNumber(venda.total),
@@ -211,6 +221,7 @@ export class PortalClienteService {
         email: empresa.email,
         telefone: empresa.telefone,
         endereco: this.formatEndereco(empresa.endereco),
+        pix: getPixEmpresaPublico(empresa.pix),
         horariosFuncionamento: this.getConfigList('PORTAL_HORARIOS_FUNCIONAMENTO', [
           'Segunda a sexta: 09:00 as 18:00',
           'Sabado: 09:00 as 13:00',
@@ -369,7 +380,7 @@ export class PortalClienteService {
       }
     }
 
-    return `${item.tipo || 'Item'} ${String(item.referenciaId || '').slice(-6).toUpperCase()}`;
+    return `${item.tipo || 'Item'} vinculado`;
   }
 
   private async assertAtendimentoPertenceAoCliente(atendimentoId: string, payload: PortalTokenPayload) {
@@ -456,7 +467,7 @@ export class PortalClienteService {
       return {
         id: `os-${ordem.id}`,
         tipo: 'ordem_servico',
-        titulo: ordem.equipamento || ordem.problemaRelatado || `Servico #${String(ordem.id).slice(-6).toUpperCase()}`,
+        titulo: ordem.equipamento || ordem.problemaRelatado || 'Serviço em atendimento',
         descricaoCurta: this.getAtendimentoDescricaoOs(ordem),
         status: ordem.statusOperacional,
         statusPublico: this.getStatusOsPublico(ordem.statusOperacional),
@@ -481,7 +492,7 @@ export class PortalClienteService {
         atendimentos.push({
           id: `venda-${venda.id}`,
           tipo: 'venda_direta',
-          titulo: venda.numero ? `Venda #${venda.numero}` : `Venda #${String(venda.id).slice(-6).toUpperCase()}`,
+          titulo: venda.numero ? `Venda #${venda.numero}` : 'Venda antiga',
           descricaoCurta: 'Venda direta realizada na loja.',
           status: venda.statusFinanceiro,
           statusPublico: this.getStatusPagamentoPublico(venda.statusFinanceiro),
@@ -501,7 +512,7 @@ export class PortalClienteService {
         atendimentos.push({
           id: `garantia-${garantia.id}`,
           tipo: 'garantia',
-          titulo: garantia.produto || `Garantia #${String(garantia.id).slice(-6).toUpperCase()}`,
+          titulo: garantia.produto || 'Garantia antiga',
           descricaoCurta: garantia.defeitoRelatado || 'Garantia em acompanhamento.',
           status: garantia.status,
           statusPublico: this.getStatusGarantiaPublico(garantia.status),
@@ -520,7 +531,7 @@ export class PortalClienteService {
 
   private getAtendimentoDescricaoOs(ordem: any) {
     return [
-      ordem.numero ? `OS #${ordem.numero}` : `OS #${String(ordem.id).slice(-6).toUpperCase()}`,
+      ordem.numero ? `OS #${ordem.numero}` : 'OS antiga',
       ordem.dataEntrada ? `Entrada ${new Date(ordem.dataEntrada).toLocaleDateString('pt-BR')}` : undefined,
       ordem.problemaRelatado,
     ].filter(Boolean).join(' | ');

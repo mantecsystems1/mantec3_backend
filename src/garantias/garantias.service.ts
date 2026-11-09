@@ -113,7 +113,7 @@ export class GarantiasService {
       .populate('empresaId', 'nomeFantasia razaoSocial')
       .populate('clienteId', 'nome cpfCnpj')
       .populate('vendaId', 'numero total dataVenda status')
-      .populate('ordemServicoId', 'statusOperacional prioridade dataEntrada')
+      .populate('ordemServicoId', 'numero statusOperacional prioridade dataEntrada')
       .populate('produtoId', 'nome codigoInterno precoVenda')
       .populate('fornecedorId', 'nome cnpj')
       .exec();
@@ -126,7 +126,7 @@ export class GarantiasService {
       .populate('empresaId', 'nomeFantasia razaoSocial')
       .populate('clienteId', 'nome cpfCnpj')
       .populate('vendaId', 'numero total dataVenda status')
-      .populate('ordemServicoId', 'statusOperacional prioridade dataEntrada')
+      .populate('ordemServicoId', 'numero statusOperacional prioridade dataEntrada')
       .populate('produtoId', 'nome codigoInterno precoVenda')
       .populate('fornecedorId', 'nome cnpj')
       .exec();

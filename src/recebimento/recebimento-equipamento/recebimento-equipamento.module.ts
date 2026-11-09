@@ -8,6 +8,10 @@ import { ComponentesAusentes, ComponentesAusentesSchema } from '../componentes-a
 import { MidiasRecebimento, MidiasRecebimentoSchema } from '../midias/midias-recebimento.schema';
 import { TermosRecebimento, TermosRecebimentoSchema } from '../termos/termos-recebimento.schema';
 import { AuditoriaModule } from '../../auditoria/auditoria.module';
+import { RecebimentoCompletoService } from './recebimento-completo.service';
+import { OrdemServico, OrdemServicoSchema } from '../../ordens-servico/schemas/ordem-servico.schema';
+import { Orcamento, OrcamentoSchema } from '../../orcamentos/schemas/orcamento.schema';
+import { Venda, VendaSchema } from '../../financeiro/vendas/schemas/venda.schema';
 
 @Module({
   imports: [
@@ -18,10 +22,13 @@ import { AuditoriaModule } from '../../auditoria/auditoria.module';
       { name: ComponentesAusentes.name, schema: ComponentesAusentesSchema },
       { name: MidiasRecebimento.name, schema: MidiasRecebimentoSchema },
       { name: TermosRecebimento.name, schema: TermosRecebimentoSchema },
+      { name: OrdemServico.name, schema: OrdemServicoSchema },
+      { name: Orcamento.name, schema: OrcamentoSchema },
+      { name: Venda.name, schema: VendaSchema },
     ]),
   ],
   controllers: [RecebimentoEquipamentoController],
-  providers: [RecebimentoEquipamentoService],
+  providers: [RecebimentoEquipamentoService, RecebimentoCompletoService],
   exports: [RecebimentoEquipamentoService],
 })
 export class RecebimentoEquipamentoModule {}

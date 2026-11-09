@@ -1,5 +1,5 @@
 // dto/create-ordem-servico.dto.ts
-import { IsString, IsOptional, IsEnum, IsDateString } from 'class-validator';
+import { IsDefined, IsString, IsOptional, IsEnum, IsDateString } from 'class-validator';
 
 export class CreateOrdemServicoDto {
   @IsString()
@@ -11,7 +11,7 @@ export class CreateOrdemServicoDto {
   @IsString()
   tecnicoId!: string;
 
-  @IsOptional()
+  @IsDefined()
   @IsString()
   orcamentoId?: string;
 
@@ -27,6 +27,10 @@ export class CreateOrdemServicoDto {
   // Aceitar string ISO 8601 e deixar o Mongoose converter para Date ao salvar
   @IsDateString()
   dataEntrada!: string;
+
+  @IsOptional()
+  @IsDateString()
+  dataPrevistaEntrega?: string;
 
   @IsOptional()
   @IsDateString()

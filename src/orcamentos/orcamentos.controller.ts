@@ -1,6 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } from '@nestjs/common';
 import { OrcamentosService } from './orcamentos.service';
 import { CreateOrcamentoDto } from './dto/create-orcamento.dto';
+import { CreateOrcamentoCompletoDto } from './dto/create-orcamento-completo.dto';
+import { UpdateOrcamentoCompletoDto } from './dto/update-orcamento-completo.dto';
 import { UpdateOrcamentoDto } from './dto/update-orcamento.dto';
 import { CreateItensOrcamentoDto } from './dto/create-itens-orcamento.dto';
 import { UpdateItensOrcamentoDto } from './dto/update-itens-orcamento.dto';
@@ -16,6 +18,19 @@ import type { CurrentUserPayload } from '../common/decorators/current-user.decor
 export class OrcamentosController {
   constructor(private readonly orcamentosService: OrcamentosService) {}
 
+  @Post('completo')
+  @UseGuards(AuthTokenGuard, PermissionGuard)
+  @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_CRIAR)
+  createCompleto(@Body() dto: CreateOrcamentoCompletoDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.orcamentosService.createCompleto(dto, user);
+  }
+
+  @Get('completo/operacoes/:operacaoId')
+  @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_CONSULTAR)
+  porOperacao(@Param('operacaoId') operacaoId: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.orcamentosService.porOperacao(operacaoId, user);
+  }
+
   @Post()
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_CRIAR)
@@ -27,6 +42,12 @@ export class OrcamentosController {
   @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_CONSULTAR)
   findAll(@CurrentUser() user?: CurrentUserPayload) {
     return this.orcamentosService.findAll(user?.empresaId);
+  }
+
+  @Get('paginado')
+  @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_CONSULTAR)
+  findAllPaginado(@Query() query: Record<string, unknown>, @CurrentUser() user?: CurrentUserPayload) {
+    return this.orcamentosService.findAllPaginado(user?.empresaId, query);
   }
 
   @Post('itens')
@@ -78,28 +99,28 @@ export class OrcamentosController {
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_ENVIAR)
   enviar(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.orcamentosService.update(id, { status: ORCAMENTO_STATUS.ENVIADO }, user?.empresaId);
+    return this.orcamentosService.update(id, { status: ORCAMENTO_STATUS.ENVIADO }, user?.empresaId, user);
   }
 
   @Post(':id/aprovar')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_APROVAR)
   aprovar(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.orcamentosService.update(id, { status: ORCAMENTO_STATUS.APROVADO }, user?.empresaId);
+    return this.orcamentosService.update(id, { status: ORCAMENTO_STATUS.APROVADO }, user?.empresaId, user);
   }
 
   @Post(':id/reprovar')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_REPROVAR)
   reprovar(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.orcamentosService.update(id, { status: ORCAMENTO_STATUS.REPROVADO }, user?.empresaId);
+    return this.orcamentosService.update(id, { status: ORCAMENTO_STATUS.REPROVADO }, user?.empresaId, user);
   }
 
   @Post(':id/cancelar')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_CANCELAR)
   cancelar(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.orcamentosService.update(id, { status: ORCAMENTO_STATUS.CANCELADO }, user?.empresaId);
+    return this.orcamentosService.update(id, { status: ORCAMENTO_STATUS.CANCELADO }, user?.empresaId, user);
   }
 
   @Post(':id/gerar-os')
@@ -119,13 +140,20 @@ export class OrcamentosController {
     cancelado: EVENTOS_NEGOCIO.ORCAMENTO_CANCELAR,
   }, EVENTOS_NEGOCIO.ORCAMENTO_EDITAR_RASCUNHO)
   update(@Param('id') id: string, @Body() updateOrcamentoDto: UpdateOrcamentoDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.orcamentosService.update(id, updateOrcamentoDto, user?.empresaId);
+    return this.orcamentosService.update(id, updateOrcamentoDto, user?.empresaId, user);
+  }
+
+  @Patch(':id/completo')
+  @UseGuards(AuthTokenGuard, PermissionGuard)
+  @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_EDITAR_RASCUNHO)
+  updateCompleto(@Param('id') id: string, @Body() dto: UpdateOrcamentoCompletoDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.orcamentosService.updateCompleto(id, dto, user);
   }
 
   @Delete(':id')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.ORCAMENTO_CANCELAR)
   remove(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.orcamentosService.remove(id, user?.empresaId);
+    return this.orcamentosService.remove(id, user?.empresaId, user);
   }
 }

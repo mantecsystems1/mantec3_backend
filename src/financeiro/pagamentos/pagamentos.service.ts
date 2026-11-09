@@ -10,6 +10,7 @@ import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../../auditoria/auditoria-eventos';
 import { FinanceiroAdmService } from '../financeiro-adm/financeiro-adm.service';
 import { centavosParaDecimal128, dinheiroParaCentavos } from '../financeiro-adm/financeiro-adm.types';
+import { executarTransacaoFinanceira, totalPagamentosValidosCentavos, totaisPagamentosValidosPorVenda } from '../vendas/venda-pagamentos-validos';
 
 @Injectable()
 export class PagamentosService {
@@ -22,7 +23,7 @@ export class PagamentosService {
 
   async create(createPagamentoDto: CreatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
     this.assertEmpresaInformada(actorEmpresaId);
-    return this.pagamentoModel.db.transaction(() => this.createAtomic(createPagamentoDto, actorId, actorEmpresaId));
+    return executarTransacaoFinanceira(this.pagamentoModel.db, () => this.createAtomic(createPagamentoDto, actorId, actorEmpresaId));
   }
 
   private async createAtomic(createPagamentoDto: CreatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
@@ -49,8 +50,8 @@ export class PagamentosService {
     const createdPagamento = new this.pagamentoModel(pagamentoData);
     const saved = await createdPagamento.save();
 
-    await this.atualizarStatusFinanceiroVenda(createPagamentoDto.vendaId);
     await this.sincronizarFinanceiroPagamento(saved, venda, actorId, actorEmpresaId, createPagamentoDto.contaFinanceiraId);
+    await this.atualizarStatusFinanceiroVenda(createPagamentoDto.vendaId);
 
     if (actorId) {
       await this.registrarAuditoriaPagamento(saved, venda, actorId, 'registrado');
@@ -73,6 +74,33 @@ export class PagamentosService {
       .exec();
   }
 
+  async resumoPainel(empresaId?: string) {
+    this.assertEmpresaInformada(empresaId);
+    const vendas = await this.vendaModel.find({ empresaId }).select('_id total statusFinanceiro').lean().exec();
+    const canceladas = vendas.filter(venda => venda.statusFinanceiro === VENDA_STATUS_FINANCEIRO.CANCELADO);
+    const emitidas = vendas.filter(venda => venda.statusFinanceiro !== VENDA_STATUS_FINANCEIRO.CANCELADO);
+    const totaisPagamento = await totaisPagamentosValidosPorVenda(
+      this.pagamentoModel.db,
+      emitidas.map(venda => String(venda._id)),
+      empresaId,
+    );
+    const somarCentavos = (registros: typeof vendas) => {
+      const valores = registros.map(venda => dinheiroParaCentavos(venda.total));
+      return valores.some(valor => !Number.isFinite(valor))
+        ? null
+        : valores.reduce((total, valor) => total + valor, 0);
+    };
+
+    return {
+      vendasEmitidas: { quantidade: emitidas.length, totalCentavos: somarCentavos(emitidas) },
+      vendasCanceladas: { quantidade: canceladas.length, totalCentavos: somarCentavos(canceladas) },
+      recebimentosConfirmados: {
+        vendasComRecebimento: totaisPagamento.size,
+        totalCentavos: Array.from(totaisPagamento.values()).reduce((total, valor) => total + valor, 0),
+      },
+    };
+  }
+
   async findOne(id: string, empresaId?: string) {
     const pagamento = await this.pagamentoModel.findById(id).exec();
     if (!pagamento) {
@@ -93,7 +121,7 @@ export class PagamentosService {
 
   async update(id: string, updatePagamentoDto: UpdatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
     this.assertEmpresaInformada(actorEmpresaId);
-    return this.pagamentoModel.db.transaction(() => this.updateAtomic(id, updatePagamentoDto, actorId, actorEmpresaId));
+    return executarTransacaoFinanceira(this.pagamentoModel.db, () => this.updateAtomic(id, updatePagamentoDto, actorId, actorEmpresaId));
   }
 
   private async updateAtomic(id: string, updatePagamentoDto: UpdatePagamentoDto, actorId?: string, actorEmpresaId?: string) {
@@ -111,7 +139,7 @@ export class PagamentosService {
     if (updatePagamentoDto.vendaId && updatePagamentoDto.vendaId !== vendaId) {
       throw new BadRequestException('Nao e permitido transferir pagamento para outra venda.');
     }
-    if (updatePagamentoDto.valor) {
+    if (updatePagamentoDto.valor !== undefined) {
       const novoValorCentavos = this.parseValorCentavos(updatePagamentoDto.valor, 'valor');
       if (novoValorCentavos <= 0) {
         throw new BadRequestException('Valor do pagamento deve ser maior que zero.');
@@ -135,11 +163,10 @@ export class PagamentosService {
     );
 
     const updated = await this.pagamentoModel.findOneAndUpdate({ _id: id, vendaId: venda._id }, updateData, { new: true }).exec();
-    await this.atualizarStatusFinanceiroVenda(vendaId);
-
     if (updated) {
       await this.sincronizarFinanceiroPagamento(updated, venda, actorId, actorEmpresaId, updatePagamentoDto.contaFinanceiraId);
     }
+    await this.atualizarStatusFinanceiroVenda(vendaId);
 
     if (actorId && updated) {
       await this.registrarAuditoriaPagamento(updated, venda, actorId, 'atualizado');
@@ -150,7 +177,7 @@ export class PagamentosService {
 
   async remove(id: string, actorId?: string, actorEmpresaId?: string) {
     this.assertEmpresaInformada(actorEmpresaId);
-    return this.pagamentoModel.db.transaction(() => this.removeAtomic(id, actorId, actorEmpresaId));
+    return executarTransacaoFinanceira(this.pagamentoModel.db, () => this.removeAtomic(id, actorId, actorEmpresaId));
   }
 
   private async removeAtomic(id: string, actorId?: string, actorEmpresaId?: string) {
@@ -213,13 +240,9 @@ export class PagamentosService {
   }
 
   private async getTotalPagoVendaCentavos(vendaId: string, ignoredPagamentoId?: string) {
-    const query: Record<string, unknown> = { vendaId };
-    if (ignoredPagamentoId) {
-      query._id = { $ne: ignoredPagamentoId };
-    }
-
-    const pagamentos = await this.pagamentoModel.find(query).exec();
-    return pagamentos.reduce((total, pagamento) => total + dinheiroParaCentavos(pagamento.valor), 0);
+    const venda = await this.vendaModel.findById(vendaId).select('empresaId').lean().exec();
+    if (!venda) throw new NotFoundException('Venda nao encontrada.');
+    return totalPagamentosValidosCentavos(this.pagamentoModel.db, vendaId, String(venda.empresaId), ignoredPagamentoId);
   }
 
   private async atualizarStatusFinanceiroVenda(vendaId: string) {
@@ -243,6 +266,11 @@ export class PagamentosService {
     const venda = await this.vendaModel.findOneAndUpdate(query, { $inc: { __v: 1 } }, { new: true }).exec();
     if (!venda) {
       throw new NotFoundException('Venda nao encontrada.');
+    }
+
+    if (venda.statusFinanceiro !== VENDA_STATUS_FINANCEIRO.CANCELADO) {
+      venda.statusFinanceiro = calcularStatusFinanceiroVenda(venda.total,
+        await totalPagamentosValidosCentavos(this.pagamentoModel.db, vendaId, empresaId) / 100);
     }
 
     return venda;

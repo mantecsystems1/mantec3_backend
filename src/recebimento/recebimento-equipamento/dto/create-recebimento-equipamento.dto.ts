@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsDate, IsMongoId, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsDate, IsIn, IsMongoId, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { CATEGORIAS_EQUIPAMENTO } from '../../../common/equipamento-categorias';
 
 export class CreateRecebimentoEquipamentoDto {
   @IsMongoId()
@@ -11,6 +12,10 @@ export class CreateRecebimentoEquipamentoDto {
   @IsString()
   @IsNotEmpty()
   tipoEquipamento: string;
+
+  @IsOptional()
+  @IsIn(CATEGORIAS_EQUIPAMENTO)
+  categoriaEquipamento?: string;
 
   @IsString()
   @IsNotEmpty()

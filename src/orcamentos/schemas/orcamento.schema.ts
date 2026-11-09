@@ -5,6 +5,14 @@ export type OrcamentoDocument = Orcamento & Document;
 
 @Schema({ collection: 'orcamentos', timestamps: { createdAt: 'criadoEm' } })
 export class Orcamento {
+  @Prop()
+  numero?: string;
+
+  @Prop({ select: false })
+  operacaoId?: string;
+
+  @Prop({ select: false })
+  operacaoHash?: string;
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Empresa', required: true })
   empresaId: Types.ObjectId;
 
@@ -41,3 +49,5 @@ export const OrcamentoSchema = SchemaFactory.createForClass(Orcamento);
 OrcamentoSchema.index({ empresaId: 1, status: 1, criadoEm: -1 });
 OrcamentoSchema.index({ empresaId: 1, clienteId: 1, criadoEm: -1 });
 OrcamentoSchema.index({ empresaId: 1, recebimentoEquipamentoId: 1 });
+OrcamentoSchema.index({ empresaId: 1, criadoPor: 1, operacaoId: 1 }, { unique: true, partialFilterExpression: { operacaoId: { $type: 'string' } } });
+OrcamentoSchema.index({ empresaId: 1, numero: 1 }, { unique: true, partialFilterExpression: { numero: { $type: 'string' } } });

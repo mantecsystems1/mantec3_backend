@@ -1,6 +1,10 @@
-import { IsISO8601, IsInt, IsMongoId, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import { IsISO8601, IsInt, IsMongoId, IsNotEmpty, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreateMidiasRecebimentoDto {
+  @IsOptional()
+  @IsUUID()
+  chaveCliente?: string;
+
   @IsMongoId()
   recebimentoEquipamentoId: string;
 

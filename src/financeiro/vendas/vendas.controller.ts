@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
 import { VendasService } from './vendas.service';
 import { CreateVendaDto } from './dto/create-venda.dto';
+import { CreateVendaCompletaDto } from './dto/create-venda-completa.dto';
 import { UpdateVendaDto } from './dto/update-venda.dto';
 import { CreateItensVendaDto } from './dto/create-itens-venda.dto';
 import { UpdateItensVendaDto } from './dto/update-itens-venda.dto';
@@ -17,6 +18,18 @@ export class VendasController {
   constructor(private readonly vendasService: VendasService) {}
 
   // Venda routes
+  @Post('completo')
+  @RequireEvento(EVENTOS_NEGOCIO.VENDA_GERAR)
+  createCompleto(@Body() dto: CreateVendaCompletaDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.createCompleto(dto, user);
+  }
+
+  @Get('completo/operacoes/:operacaoId')
+  @RequireEvento(EVENTOS_NEGOCIO.VENDA_CONSULTAR)
+  porOperacao(@Param('operacaoId') operacaoId: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.vendasService.porOperacao(operacaoId, user);
+  }
+
   @Post()
   @RequireEvento(EVENTOS_NEGOCIO.VENDA_GERAR)
   create(@Body() createVendaDto: CreateVendaDto, @CurrentUser() user?: CurrentUserPayload) {
@@ -33,7 +46,7 @@ export class VendasController {
   @Post('itens')
   @RequireEvento(EVENTOS_NEGOCIO.VENDA_GERAR)
   createItem(@Body() createItensVendaDto: CreateItensVendaDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.vendasService.createItem(createItensVendaDto, user?.empresaId);
+    return this.vendasService.createItem(createItensVendaDto, user?.empresaId, user?.id || user?._id || user?.sub);
   }
 
   @Get('itens')
@@ -51,13 +64,13 @@ export class VendasController {
   @Patch('itens/:id')
   @RequireEvento(EVENTOS_NEGOCIO.VENDA_GERAR)
   updateItem(@Param('id') id: string, @Body() updateItensVendaDto: UpdateItensVendaDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.vendasService.updateItem(id, updateItensVendaDto, user?.empresaId);
+    return this.vendasService.updateItem(id, updateItensVendaDto, user?.empresaId, user?.id || user?._id || user?.sub);
   }
 
   @Delete('itens/:id')
   @RequireEvento(EVENTOS_NEGOCIO.VENDA_CANCELAR)
   removeItem(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.vendasService.removeItem(id, user?.empresaId);
+    return this.vendasService.removeItem(id, user?.empresaId, user?.id || user?._id || user?.sub);
   }
 
   @Get(':id')

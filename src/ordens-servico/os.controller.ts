@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Req, UseGuards, UsePipes, ValidationPipe, Query } from '@nestjs/common';
 import { OsService } from './os.service';
 import { CreateOrdemServicoDto } from './dto/create-ordem-servico.dto';
 import { UpdateOrdemServicoDto } from './dto/update-ordem-servico.dto';
 import { RegistrarEntregaOsDto } from './dto/registrar-entrega-os.dto';
+import { RegistrarChecklistQualidadeOsDto } from './dto/registrar-checklist-qualidade.dto';
+import { RegistrarCorrecaoChecklistQualidadeDto } from './dto/registrar-correcao-checklist-qualidade.dto';
 import { CreateItensUtilizadosOSDto } from './dto/create-itens-utilizados-os.dto';
 import { UpdateItensUtilizadosOSDto } from './dto/update-itens-utilizados-os.dto';
 import { CreatePecaReservadaOSDto } from './dto/create-peca-reservada-os.dto';
@@ -22,7 +24,7 @@ export class OsController {
   @RequireEvento(EVENTOS_NEGOCIO.OS_CRIAR)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   create(@Body() createOrdemServicoDto: CreateOrdemServicoDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.create(createOrdemServicoDto, user?.empresaId);
+    return this.osService.create(createOrdemServicoDto, user?.empresaId, user);
   }
 
   @Get()
@@ -31,11 +33,17 @@ export class OsController {
     return this.osService.findAll(user?.empresaId);
   }
 
+  @Get('paginado')
+  @RequireEvento(EVENTOS_NEGOCIO.OS_CONSULTAR)
+  findAllPaginado(@Query() query: Record<string, unknown>, @CurrentUser() user?: CurrentUserPayload) {
+    return this.osService.findAllPaginado(user?.empresaId, query);
+  }
+
   @Post('itens-utilizados')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_CONSUMIR_PECA)
   createItem(@Body() createItensUtilizadosOSDto: CreateItensUtilizadosOSDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.createItem(createItensUtilizadosOSDto, {}, user?.empresaId);
+    return this.osService.createItem(createItensUtilizadosOSDto, {}, user?.empresaId, user);
   }
 
   @Get('itens-utilizados')
@@ -60,7 +68,7 @@ export class OsController {
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_RESERVAR_PECA)
   createReserva(@Body() createPecaReservadaOSDto: CreatePecaReservadaOSDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.reservarPeca(createPecaReservadaOSDto, user?.empresaId);
+    return this.osService.reservarPeca(createPecaReservadaOSDto, user?.empresaId, user);
   }
 
   @Get('reservas-pecas')
@@ -79,28 +87,28 @@ export class OsController {
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_CONSUMIR_PECA)
   consumirReserva(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.consumirReserva(id, user?.empresaId);
+    return this.osService.consumirReserva(id, user?.empresaId, user);
   }
 
   @Delete('reservas-pecas/:id')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_RESERVAR_PECA)
   removeReserva(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.removerReserva(id, user?.empresaId);
+    return this.osService.removerReserva(id, user?.empresaId, user);
   }
 
   @Patch('itens-utilizados/:id')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_CONSUMIR_PECA)
   updateItem(@Param('id') id: string, @Body() updateItensUtilizadosOSDto: UpdateItensUtilizadosOSDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.updateItem(id, updateItensUtilizadosOSDto, user?.empresaId);
+    return this.osService.updateItem(id, updateItensUtilizadosOSDto, user?.empresaId, user);
   }
 
   @Delete('itens-utilizados/:id')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_CONSUMIR_PECA)
   removeItem(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.removeItem(id, user?.empresaId);
+    return this.osService.removeItem(id, user?.empresaId, user);
   }
 
   @Get(':id')
@@ -113,28 +121,51 @@ export class OsController {
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_INICIAR_DIAGNOSTICO)
   iniciarDiagnostico(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.update(id, { statusOperacional: OS_STATUS.EM_DIAGNOSTICO }, user?.empresaId);
+    return this.osService.update(id, { statusOperacional: OS_STATUS.EM_DIAGNOSTICO }, user?.empresaId, user);
   }
 
   @Post(':id/aguardar-peca')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_AGUARDAR_PECA)
   aguardarPeca(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.update(id, { statusOperacional: OS_STATUS.AGUARDANDO_PECA }, user?.empresaId);
+    return this.osService.update(id, { statusOperacional: OS_STATUS.AGUARDANDO_PECA }, user?.empresaId, user);
   }
 
   @Post(':id/iniciar-execucao')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_INICIAR_EXECUCAO)
   iniciarExecucao(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.update(id, { statusOperacional: OS_STATUS.EM_EXECUCAO }, user?.empresaId);
+    return this.osService.update(id, { statusOperacional: OS_STATUS.EM_EXECUCAO }, user?.empresaId, user);
   }
 
   @Post(':id/finalizar')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_FINALIZAR)
   finalizar(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.update(id, { statusOperacional: OS_STATUS.CONCLUIDA }, user?.empresaId);
+    return this.osService.update(id, { statusOperacional: OS_STATUS.CONCLUIDA }, user?.empresaId, user);
+  }
+
+  @Patch(':id/checklist-qualidade')
+  @UseGuards(AuthTokenGuard, PermissionGuard)
+  @RequireEvento(EVENTOS_NEGOCIO.OS_FINALIZAR)
+  salvarChecklistQualidade(
+    @Param('id') id: string,
+    @Body() dto: RegistrarChecklistQualidadeOsDto,
+    @CurrentUser() user?: CurrentUserPayload,
+  ) {
+    return this.osService.salvarChecklistQualidade(id, dto, user);
+  }
+
+  @Post(':id/checklist-qualidade/correcoes')
+  @UseGuards(AuthTokenGuard, PermissionGuard)
+  @RequireEvento(EVENTOS_NEGOCIO.OS_CORRIGIR_CHECKLIST_QUALIDADE)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  corrigirChecklistQualidade(
+    @Param('id') id: string,
+    @Body() dto: RegistrarCorrecaoChecklistQualidadeDto,
+    @CurrentUser() user?: CurrentUserPayload,
+  ) {
+    return this.osService.corrigirChecklistQualidade(id, dto, user);
   }
 
   @Post(':id/entrega-assinatura')
@@ -148,8 +179,8 @@ export class OsController {
   ) {
     return this.osService.registrarEntrega(id, {
       ...dto,
-      ipAssinaturaEntrega: dto.ipAssinaturaEntrega || this.getClientIp(req),
-      userAgentAssinaturaEntrega: dto.userAgentAssinaturaEntrega || req?.headers?.['user-agent'],
+      ipAssinaturaEntrega: this.getClientIp(req),
+      userAgentAssinaturaEntrega: req?.headers?.['user-agent'],
     }, user);
   }
 
@@ -157,7 +188,7 @@ export class OsController {
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_CANCELAR)
   cancelar(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.update(id, { statusOperacional: OS_STATUS.CANCELADA }, user?.empresaId);
+    return this.osService.update(id, { statusOperacional: OS_STATUS.CANCELADA }, user?.empresaId, user);
   }
 
   @Patch(':id')
@@ -170,14 +201,14 @@ export class OsController {
     cancelada: EVENTOS_NEGOCIO.OS_CANCELAR,
   }, EVENTOS_NEGOCIO.OS_INICIAR_EXECUCAO)
   update(@Param('id') id: string, @Body() updateOrdemServicoDto: UpdateOrdemServicoDto, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.update(id, updateOrdemServicoDto, user?.empresaId);
+    return this.osService.update(id, updateOrdemServicoDto, user?.empresaId, user);
   }
 
   @Delete(':id')
   @UseGuards(AuthTokenGuard, PermissionGuard)
   @RequireEvento(EVENTOS_NEGOCIO.OS_CANCELAR)
   remove(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {
-    return this.osService.remove(id, user?.empresaId);
+    return this.osService.remove(id, user?.empresaId, user);
   }
 
   private getClientIp(req: any) {

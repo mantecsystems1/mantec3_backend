@@ -26,6 +26,12 @@ export class PagamentosController {
     return this.pagamentosService.findAll(user?.empresaId);
   }
 
+  @Get('resumo-painel')
+  @RequireEvento(EVENTOS_NEGOCIO.PAGAMENTO_CONSULTAR)
+  resumoPainel(@CurrentUser() user?: CurrentUserPayload) {
+    return this.pagamentosService.resumoPainel(user?.empresaId);
+  }
+
   @Get(':id')
   @RequireEvento(EVENTOS_NEGOCIO.PAGAMENTO_CONSULTAR)
   findOne(@Param('id') id: string, @CurrentUser() user?: CurrentUserPayload) {

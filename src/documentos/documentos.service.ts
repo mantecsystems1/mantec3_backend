@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Cliente, ClienteDocument } from '../clientes/schemas/cliente.schema';
@@ -16,6 +16,11 @@ import { OrdemServico, OrdemServicoDocument } from '../ordens-servico/schemas/or
 import { LogEvento, LogEventoDocument } from '../auditoria/schemas/log-evento.schema';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 import { SimplePdfBuilder } from './simple-pdf';
+import { listarPagamentosValidos } from '../financeiro/vendas/venda-pagamentos-validos';
+import { calcularStatusFinanceiroVenda } from '../financeiro/vendas/venda-financeiro.states';
+import { dinheiroParaCentavos } from '../financeiro/financeiro-adm/financeiro-adm.types';
+import { CHECKLIST_QUALIDADE_ROTULOS } from '../ordens-servico/checklist-qualidade';
+import { reconstruirRevisoesChecklistQualidade, resumirRevisaoChecklistQualidade } from '../ordens-servico/checklist-qualidade-revisoes';
 
 const statusLabel: Record<string, string> = {
   rascunho: 'Em preparação',
@@ -26,9 +31,11 @@ const statusLabel: Record<string, string> = {
   cancelado: 'Cancelado',
   expirado: 'Expirado',
   entrada: 'Entrada registrada',
-  aberta: 'Entrada registrada',
+  aberta: 'Aberta',
   diagnostico: 'Em diagnóstico',
   em_diagnostico: 'Em diagnóstico',
+  em_triagem: 'Em triagem',
+  encaminhado: 'Encaminhado',
   aguardando_peca: 'Aguardando peça',
   aguardando_aprovacao: 'Aguardando aprovação',
   em_reparo: 'Serviço em execução',
@@ -37,7 +44,35 @@ const statusLabel: Record<string, string> = {
   entregue: 'Entregue',
   concluida: 'Disponível para retirada',
   cancelada: 'Cancelada',
+  aberto: 'Em aberto',
+  recebido: 'Recebido',
+  pendente: 'Pendente',
+  parcial: 'Pagamento parcial',
+  pago: 'Pago',
+  quitado: 'Quitado',
+  enviada_fornecedor: 'Enviada ao fornecedor',
+  em_analise: 'Em análise',
+  aprovada: 'Aprovada',
+  recusada: 'Recusada',
+  cartao_credito: 'Cartão de crédito',
+  cartao_debito: 'Cartão de débito',
+  pix: 'Pix',
+  dinheiro: 'Dinheiro',
+  boleto: 'Boleto',
+  transferencia: 'Transferência',
+  outro: 'Outro',
 };
+
+const getLabel = (value: unknown) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return 'Não informado';
+  return statusLabel[normalized] || normalized.replace(/_/g, ' ').replace(/(^|\s)\S/g, (letter) => letter.toLocaleUpperCase('pt-BR'));
+};
+
+const getItemTypeLabel = (value: unknown) => ({
+  produto: 'Produto',
+  servico: 'Serviço',
+}[String(value ?? '').trim().toLowerCase()] || 'Item');
 
 @Injectable()
 export class DocumentosService {
@@ -68,8 +103,9 @@ export class DocumentosService {
     ]);
 
     const pdf = this.criarBase('Orçamento', empresa, cliente);
-    pdf.addKeyValue('Documento', this.numeroDocumento('ORC', orcamento._id));
-    pdf.addKeyValue('Status', orcamento.status);
+    const numeroOrcamento = this.getNumeroNegocio(orcamento);
+    if (numeroOrcamento) pdf.addKeyValue('Número do orçamento', `#${numeroOrcamento}`);
+    pdf.addKeyValue('Situação', getLabel(orcamento.status));
     const orcamentoRecord = orcamento as unknown as Record<string, unknown>;
     pdf.addKeyValue('Emissão', this.formatDate(orcamentoRecord.criadoEm ?? new Date()));
     pdf.addKeyValue('Validade', this.formatDate(orcamento.validade));
@@ -79,7 +115,7 @@ export class DocumentosService {
       [200, 65, 40, 105, 101],
       await Promise.all(itens.map(async (item) => [
         await this.itemDescricaoDaEmpresa(item, empresaId),
-        item.tipo,
+        getItemTypeLabel(item.tipo),
         String(item.quantidade),
         this.formatMoney(item.valorUnitario),
         this.formatMoney(item.totalItem),
@@ -106,23 +142,25 @@ export class DocumentosService {
       this.empresaModel.findById(venda.empresaId).lean().exec(),
       this.clienteModel.findOne({ _id: venda.clienteId, empresaId: venda.empresaId }).lean().exec(),
       this.itensVendaModel.find({ vendaId: venda._id }).lean().exec(),
-      this.pagamentoModel.find({ vendaId: venda._id }).lean().exec(),
+      listarPagamentosValidos(this.pagamentoModel.db, String(venda._id), String(venda.empresaId)),
       venda.origemTipo === 'ordem_servico' && venda.origemId
         ? this.ordemServicoModel.findOne({ _id: venda.origemId, empresaId: venda.empresaId }).lean().exec()
         : Promise.resolve(null),
     ]);
 
     const pdf = this.criarBase('Recibo', empresa, cliente);
-    pdf.addKeyValue('Documento', this.numeroDocumento('REC', venda._id));
-    pdf.addKeyValue('Origem', venda.origemTipo);
-    pdf.addKeyValue('Status financeiro', venda.statusFinanceiro);
+    const numeroVenda = this.getNumeroNegocio(venda);
+    if (numeroVenda) pdf.addKeyValue('Número da venda', `#${numeroVenda}`);
+    pdf.addKeyValue('Origem', venda.origemTipo === 'ordem_servico' ? 'Ordem de serviço' : 'Venda direta');
+    const totalPagoCentavos = pagamentos.reduce((sum, pagamento) => sum + dinheiroParaCentavos(pagamento.valor), 0);
+    pdf.addKeyValue('Situação financeira', getLabel(venda.statusFinanceiro === 'cancelado' ? 'cancelado' : calcularStatusFinanceiroVenda(venda.total, totalPagoCentavos / 100)));
     pdf.addSection('Itens');
     pdf.addTable(
       ['Descrição', 'Tipo', 'Qtd', 'Valor unitário', 'Total'],
       [200, 65, 40, 105, 101],
       await Promise.all(itens.map(async (item) => [
         await this.itemDescricaoDaEmpresa(item, empresaId),
-        item.tipo,
+        getItemTypeLabel(item.tipo),
         String(item.quantidade),
         this.formatMoney(item.valorUnitario),
         this.formatMoney(item.totalItem),
@@ -133,7 +171,7 @@ export class DocumentosService {
       ['Forma', 'Data', 'Valor'],
       [250, 120, 141],
       pagamentos.map((pagamento) => [
-        pagamento.formaPagamento,
+        getLabel(pagamento.formaPagamento),
         this.formatDate(pagamento.dataPagamento),
         this.formatMoney(pagamento.valor),
       ]),
@@ -183,7 +221,7 @@ export class DocumentosService {
     const [empresa, cliente, pagamentos, recebimento, orcamento] = await Promise.all([
       this.empresaModel.findById(atendimentoEmpresaId).lean().exec(),
       this.clienteModel.findOne({ _id: atendimentoClienteId, empresaId: atendimentoEmpresaId }).lean().exec(),
-      venda ? this.pagamentoModel.find({ vendaId: venda._id }).lean().exec() : Promise.resolve([]),
+      venda ? listarPagamentosValidos(this.pagamentoModel.db, String(venda._id), String(venda.empresaId)) : Promise.resolve([]),
       ordemServico?.recebimentoEquipamentoId
         ? this.recebimentoModel.findOne({ _id: ordemServico.recebimentoEquipamentoId, empresaId: atendimentoEmpresaId }).lean().exec()
         : Promise.resolve(null),
@@ -213,18 +251,19 @@ export class DocumentosService {
     const subtotal = venda?.subtotal ?? orcamento?.subtotal ?? 0;
     const descontos = venda?.descontos ?? orcamento?.descontos ?? 0;
     const totalAtendimento = venda?.total ?? orcamento?.total ?? 0;
-    const documentoOrigemId = venda?._id || ordemServico?._id || id;
-
     const pdf = this.criarBase('Resumo do Atendimento', empresa, cliente);
-    pdf.addKeyValue('Documento', this.numeroDocumento('ATD', documentoOrigemId));
+    const numeroAtendimento = this.getNumeroNegocio(venda) || this.getNumeroNegocio(ordemServico);
+    if (numeroAtendimento) pdf.addKeyValue('Número do atendimento', `#${numeroAtendimento}`);
     pdf.addKeyValue('Data de emissão', this.formatDate(new Date()));
-    pdf.addKeyValue('Origem', ordemServico ? this.numeroDocumento('OS', ordemServico._id) : 'Venda direta');
-    pdf.addKeyValue('Status financeiro', venda?.statusFinanceiro || 'Venda ainda não vinculada');
+    pdf.addKeyValue('Origem', ordemServico ? 'Ordem de serviço' : 'Venda direta');
+    const totalPagoCentavos = pagamentos.reduce((sum, pagamento) => sum + dinheiroParaCentavos(pagamento.valor), 0);
+    pdf.addKeyValue('Situação financeira', !venda ? 'Venda ainda não vinculada' : getLabel(venda.statusFinanceiro === 'cancelado' ? 'cancelado' : calcularStatusFinanceiroVenda(venda.total, totalPagoCentavos / 100)));
     pdf.addHorizontalRule();
 
     if (ordemServico || recebimento) {
       pdf.addSection('Resumo do serviço');
-      pdf.addKeyValue('Status do serviço', statusLabel[ordemServicoRecord?.statusOperacional] || ordemServicoRecord?.statusOperacional || '-');
+      const etapaServico = ordemServicoRecord?.dataEntrega ? 'entregue' : ordemServicoRecord?.statusOperacional;
+      pdf.addKeyValue('Etapa do serviço', getLabel(etapaServico));
       pdf.addKeyValue('Entrada', this.formatDate(ordemServicoRecord?.dataEntrada || recebimento?.dataRecebimento));
       pdf.addKeyValue('Previsão de entrega', this.formatDate(ordemServicoRecord?.dataPrevistaEntrega));
       pdf.addKeyValue('Conclusão', this.formatDate(ordemServicoRecord?.dataConclusao));
@@ -243,8 +282,9 @@ export class DocumentosService {
 
     if (orcamento) {
       pdf.addSection(orcamento.status === 'aprovado' ? 'Orçamento aprovado' : 'Orçamento vinculado');
-      pdf.addKeyValue('Código', this.numeroDocumento('ORC', orcamento._id));
-      pdf.addKeyValue('Status', orcamento.status);
+      const numeroOrcamento = this.getNumeroNegocio(orcamento);
+      if (numeroOrcamento) pdf.addKeyValue('Número do orçamento', `#${numeroOrcamento}`);
+      pdf.addKeyValue('Situação', getLabel(orcamento.status));
       pdf.addKeyValue('Data de aprovação', this.formatDate(orcamentoAprovadoEm));
       pdf.addKeyValue('Validade original', this.formatDate(orcamento.validade));
       pdf.addKeyValue('Valor aprovado', this.formatMoney(orcamento.total));
@@ -260,7 +300,7 @@ export class DocumentosService {
         [200, 85, 45, 90, 91],
         itens.map((item) => [
           this.getItemDescricao(item, produtos, servicos),
-          item.tipo,
+          getItemTypeLabel(item.tipo),
           String(item.quantidade),
           this.formatMoney(item.valorUnitario),
           this.formatMoney(item.totalItem),
@@ -276,7 +316,7 @@ export class DocumentosService {
         ['Forma', 'Data', 'Valor'],
         [250, 120, 141],
         pagamentos.map((pagamento) => [
-          pagamento.formaPagamento,
+          getLabel(pagamento.formaPagamento),
           this.formatDate(pagamento.dataPagamento),
           this.formatMoney(pagamento.valor),
         ]),
@@ -286,7 +326,7 @@ export class DocumentosService {
     } else {
       pdf.addWrapped('Nenhum pagamento registrado para este atendimento até a emissão deste documento.');
     }
-    const totalPago = pagamentos.reduce((sum, pagamento) => sum + this.moneyToNumber(pagamento.valor), 0);
+    const totalPago = totalPagoCentavos / 100;
     const totalVenda = this.moneyToNumber(totalAtendimento);
     pdf.addKeyValue('Subtotal', this.formatMoney(subtotal));
     pdf.addKeyValue('Descontos', this.formatMoney(descontos));
@@ -326,11 +366,10 @@ export class DocumentosService {
     ]);
 
     const pdf = this.criarBase('Termo de Recebimento', empresa, cliente);
-    pdf.addKeyValue('Documento', this.numeroDocumento('TRM', recebimento._id));
     pdf.addKeyValue('Equipamento', `${recebimento.tipoEquipamento} ${recebimento.marca} ${recebimento.modelo}`);
     pdf.addKeyValue('IMEI/Serial', recebimento.imeiOuSerial || '-');
     pdf.addKeyValue('Data de recebimento', this.formatDate(recebimento.dataRecebimento));
-    pdf.addKeyValue('Status', recebimento.status);
+    pdf.addKeyValue('Situação', getLabel(recebimento.status));
     if (recebimento.observacoesGerais) {
       pdf.addSection('Observações de entrada');
       pdf.addWrapped(recebimento.observacoesGerais);
@@ -359,6 +398,129 @@ export class DocumentosService {
     return pdf.build();
   }
 
+  async listarRevisoesChecklistQualidade(id: string, empresaId?: string) {
+    const ordem = await this.getOrdemServicoChecklist(id, empresaId);
+    const recebimento = await this.recebimentoModel
+      .findOne({ _id: ordem.recebimentoEquipamentoId, empresaId: ordem.empresaId })
+      .lean()
+      .exec();
+    const revisoes = await this.buscarRevisoesChecklistQualidade(ordem, empresaId);
+    return revisoes.map((revisao) => resumirRevisaoChecklistQualidade(
+      revisao,
+      ordem.categoriaEquipamento || recebimento?.categoriaEquipamento,
+      recebimento?.tipoEquipamento,
+    ));
+  }
+
+  async gerarChecklistQualidadePdf(id: string, revisaoSolicitada: number, empresaId?: string) {
+    const ordem = await this.getOrdemServicoChecklist(id, empresaId);
+    const recebimento = await this.recebimentoModel
+      .findOne({ _id: ordem.recebimentoEquipamentoId, empresaId: ordem.empresaId })
+      .lean()
+      .exec();
+    const [empresa, cliente, revisoes] = await Promise.all([
+      this.empresaModel.findById(ordem.empresaId).lean().exec(),
+      this.clienteModel.findOne({ _id: ordem.clienteId, empresaId: ordem.empresaId }).lean().exec(),
+      this.buscarRevisoesChecklistQualidade(ordem, empresaId),
+    ]);
+    const revisao = revisoes.find((item) => item.revisao === revisaoSolicitada);
+    if (!revisao) throw new NotFoundException('Revisão de checklist não encontrada nesta OS.');
+
+    const resumo = resumirRevisaoChecklistQualidade(
+      revisao,
+      ordem.categoriaEquipamento || recebimento?.categoriaEquipamento,
+      recebimento?.tipoEquipamento,
+    );
+    const numeroOs = this.getNumeroNegocio(ordem);
+    const pdf = this.criarBase(`Checklist de qualidade · Revisão ${revisao.revisao}`, empresa, cliente);
+    if (numeroOs) pdf.addKeyValue('Ordem de serviço', `#${numeroOs}`);
+    pdf.addKeyValue('Revisão', String(revisao.revisao));
+    pdf.addKeyValue('Situação desta revisão', resumo.situacao);
+    pdf.addKeyValue('Registrada em', this.formatDateTime(revisao.data));
+    pdf.addKeyValue('Responsável pelo registro', revisao.responsavel || 'Não identificado');
+
+    if (recebimento) {
+      const categoria = ordem.categoriaEquipamento || recebimento.categoriaEquipamento || 'outro';
+      const rotulosCategoria: Record<string, string> = {
+        celular: 'Celular ou smartphone',
+        tablet: 'Tablet',
+        notebook: 'Notebook ou laptop',
+        desktop: 'Computador de mesa',
+        outro: 'Outro equipamento eletrônico',
+      };
+      pdf.addKeyValue('Categoria', rotulosCategoria[categoria] || 'Outro equipamento eletrônico');
+      pdf.addKeyValue('Equipamento', [recebimento.tipoEquipamento, recebimento.marca, recebimento.modelo].filter(Boolean).join(' ') || '-');
+      if (recebimento.imeiOuSerial) pdf.addKeyValue('IMEI / número de série', recebimento.imeiOuSerial);
+    }
+
+    pdf.addSection('Testes registrados');
+    const resultadoLabels: Record<string, string> = {
+      aprovado: 'Aprovado',
+      falha: 'Falha',
+      nao_aplicavel: 'Não se aplica',
+    };
+    pdf.addTable(
+      ['Teste', 'Resultado', 'Observação'],
+      [177, 112, 222],
+      revisao.itens.map((item) => [
+        CHECKLIST_QUALIDADE_ROTULOS[item.codigo as keyof typeof CHECKLIST_QUALIDADE_ROTULOS] || item.codigo,
+        resultadoLabels[item.resultado] || 'Não informado',
+        item.observacao || '-',
+      ]),
+    );
+    pdf.addKeyValue('Itens registrados', `${resumo.totalItens} de ${resumo.totalEsperado}`);
+    pdf.addKeyValue('Falhas registradas', String(resumo.falhas));
+
+    if (revisao.motivo) {
+      pdf.addSection('Motivo da correção');
+      pdf.addWrapped(revisao.motivo);
+    }
+    if (revisao.fonteIndisponivel) {
+      pdf.addSection('Observação do histórico');
+      pdf.addWrapped('O histórico de versões anterior não estava disponível. Este documento reproduz a versão atual registrada na ordem de serviço.');
+    } else if (revisao.legado) {
+      pdf.addSection('Observação do histórico');
+      pdf.addWrapped('Esta revisão foi reconstruída a partir do texto de auditoria disponível. Confira a linha do tempo da OS se algum resultado parecer incompleto.');
+    }
+
+    pdf.addSection('Sobre este documento');
+    pdf.addWrapped('Relatório técnico da revisão selecionada, montado a partir do histórico da ordem de serviço. Este documento é separado do comprovante de retirada e não altera nem substitui a assinatura de entrega.');
+    return pdf.build();
+  }
+
+  private async getOrdemServicoChecklist(id: string, empresaId?: string) {
+    if (!Types.ObjectId.isValid(id)) throw new BadRequestException('Ordem de serviço inválida.');
+    const ordem = await this.ordemServicoModel
+      .findOne(this.getEmpresaQuery(empresaId, { _id: id }))
+      .populate({ path: 'checklistQualidadeAtualizadaPor', select: 'nome email', match: { empresaId } })
+      .lean()
+      .exec();
+    if (!ordem) throw new NotFoundException('Ordem de serviço não encontrada.');
+    return ordem;
+  }
+
+  private async buscarRevisoesChecklistQualidade(ordem: any, empresaId?: string) {
+    const eventos = await this.logEventoModel
+      .find(this.getEmpresaQuery(empresaId, {
+        entidade: AUDITORIA_ENTIDADES.ORDEM_SERVICO,
+        entidadeId: ordem._id,
+        tipoEvento: { $in: [AUDITORIA_EVENTOS.OS_CHECKLIST_QUALIDADE_ATUALIZADO, AUDITORIA_EVENTOS.OS_CHECKLIST_QUALIDADE_CORRIGIDO] },
+      }))
+      .populate({ path: 'usuarioId', select: 'nome email', match: { empresaId } })
+      .sort({ data: 1, _id: 1 })
+      .lean()
+      .exec();
+
+    return reconstruirRevisoesChecklistQualidade(eventos, {
+      revisao: ordem.checklistQualidadeRevisao || (ordem.checklistQualidade?.length ? 1 : undefined),
+      data: ordem.checklistQualidadeAtualizadaEm,
+      responsavel: ordem.checklistQualidadeAtualizadaPor,
+      categoriaEquipamento: ordem.categoriaEquipamento,
+      itens: ordem.checklistQualidade,
+      motivo: ordem.checklistQualidadeCorrecaoMotivo,
+    });
+  }
+
   private async itemDescricaoDaEmpresa(item: { tipo?: string; referenciaId?: unknown }, empresaId?: string) {
     const query: Record<string, unknown> = { _id: item.referenciaId, empresaId };
     const produtos = item.tipo === 'produto' ? await this.produtoModel.find(query).lean().exec() : [];
@@ -373,8 +535,12 @@ export class DocumentosService {
     return pdf;
   }
 
-  private numeroDocumento(prefixo: string, id: unknown) {
-    return `${prefixo}-${String(id).slice(-8).toUpperCase()}`;
+  private getNumeroNegocio(registro: unknown) {
+    if (!registro || typeof registro !== 'object') return undefined;
+    const numero = (registro as Record<string, unknown>).numero;
+    if (typeof numero === 'string' && numero.trim()) return numero.trim();
+    if (typeof numero === 'number' && Number.isFinite(numero)) return String(numero);
+    return undefined;
   }
 
   private parseAtendimentoId(atendimentoId: string) {
@@ -408,7 +574,7 @@ export class DocumentosService {
       }
     }
 
-    return `${item.tipo || 'Item'} ${String(item.referenciaId || '').slice(-6).toUpperCase()}`;
+    return item.tipo === 'servico' ? 'Serviço não identificado' : 'Produto não identificado';
   }
 
   private getEmpresaQuery(empresaId?: string, base: Record<string, unknown> = {}) {
@@ -439,8 +605,20 @@ export class DocumentosService {
   private formatDate(value: unknown) {
     if (!value) return '-';
     const date = new Date(String(value));
+    if (Number.isNaN(date.getTime())) return '-';
     const iso = date.toISOString();
     return date.toLocaleDateString('pt-BR', { timeZone: iso.endsWith('T00:00:00.000Z') ? 'UTC' : 'America/Sao_Paulo' });
+  }
+
+  private formatDateTime(value: unknown) {
+    if (!value) return '-';
+    const date = new Date(String(value));
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
   }
 
   private formatMetodoAssinatura(value?: string) {

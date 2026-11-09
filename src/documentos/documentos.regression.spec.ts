@@ -1,9 +1,12 @@
 import { DocumentosService } from './documentos.service';
+import { listarPagamentosValidos } from '../financeiro/vendas/venda-pagamentos-validos';
+jest.mock('../financeiro/vendas/venda-pagamentos-validos', () => ({ listarPagamentosValidos: jest.fn() }));
 
 const query = (value: unknown) => ({ lean: () => ({ exec: async () => value }) });
 describe('Documentos entregues ao cliente', () => {
   let service: DocumentosService;
   beforeEach(() => {
+    jest.mocked(listarPagamentosValidos).mockResolvedValue([]);
     const item = { tipo: 'servico', referenciaId: 'servico', quantidade: 1, valorUnitario: 100, totalItem: 100 };
     service = Object.assign(Object.create(DocumentosService.prototype), {
       empresaModel: { findById: () => query({ nomeFantasia: 'Empresa QA' }) },
@@ -32,5 +35,17 @@ describe('Documentos entregues ao cliente', () => {
     Object.assign(service, { clienteModel: { findOne } });
     await service[method]('documento', 'empresa');
     expect(findOne).toHaveBeenCalledWith({ _id: 'cliente', empresaId: 'empresa' });
+  });
+  it('recibo nao declara quitacao a partir de status legado pago sem pagamento valido', async () => {
+    Object.assign(service, { vendaModel: { findOne: () => query({ _id: 'venda', empresaId: 'empresa', clienteId: 'cliente', total: 100, statusFinanceiro: 'pago' }) } });
+    const pdf = (await service.gerarReciboPdf('documento', 'empresa')).toString('latin1');
+    expect(pdf).toContain('pendente');
+    expect(listarPagamentosValidos).toHaveBeenCalledWith(undefined, 'venda', 'empresa');
+  });
+  it('recibo apresenta parcial ao receber apenas parte confirmada e usa a mesma regra do portal', async () => {
+    jest.mocked(listarPagamentosValidos).mockResolvedValue([{ valor: 40, formaPagamento: 'pix', dataPagamento: new Date() }] as never);
+    const pdf = (await service.gerarReciboPdf('documento', 'empresa')).toString('latin1');
+    expect(pdf).toContain('parcial');
+    expect(pdf).toContain('40,00');
   });
 });

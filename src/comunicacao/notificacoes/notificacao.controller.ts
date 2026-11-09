@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { NotificacaoService } from './notificacao.service';
 import { CreateNotificacaoDto } from './dto/create-notificacao.dto';
 import { UpdateNotificacaoDto } from './dto/update-notificacao.dto';
+import { ConfirmarStatusManualNotificacaoDto } from './dto/confirmar-status-manual.dto';
 import { AuthTokenGuard } from '../../common/guards/auth-token.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { CurrentUser, type CurrentUserPayload } from '../../common/decorators/current-user.decorator';
@@ -17,6 +18,13 @@ export class NotificacaoController {
   @RequireEvento(EVENTOS_NEGOCIO.NOTIFICACAO_ENVIAR)
   create(@Body() createNotificacaoDto: CreateNotificacaoDto, @CurrentUser() user?: CurrentUserPayload) {
     return this.notificacaoService.create(createNotificacaoDto, user);
+  }
+
+  @Post(':id/confirmar-status-manual')
+  @RequireEvento(EVENTOS_NEGOCIO.NOTIFICACAO_ENVIAR)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  confirmarStatusManual(@Param('id') id: string, @Body() dto: ConfirmarStatusManualNotificacaoDto, @CurrentUser() user?: CurrentUserPayload) {
+    return this.notificacaoService.confirmarStatusManual(id, dto, user);
   }
 
   @Get()

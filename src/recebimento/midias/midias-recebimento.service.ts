@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { MidiasRecebimento, MidiasRecebimentoDocument } from './midias-recebimento.schema';
@@ -13,14 +13,35 @@ export class MidiasRecebimentoService {
     @InjectModel(RecebimentoEquipamento.name) private recebimentoEquipamentoModel: Model<RecebimentoEquipamentoDocument>,
   ) {}
 
-  async create(createMidiasRecebimentoDto: CreateMidiasRecebimentoDto, empresaId?: string) {
+  async validarUpload(dto: CreateMidiasRecebimentoDto, empresaId?: string) {
+    await this.assertRecebimentoDaEmpresa(dto.recebimentoEquipamentoId, empresaId);
+    if (!dto.chaveCliente) return null;
+    const recebimento = await this.recebimentoEquipamentoModel.findOne({ _id: dto.recebimentoEquipamentoId, empresaId }).exec();
+    const expected = recebimento?.midiasEsperadas?.find((item) => item.chaveCliente === dto.chaveCliente);
+    if (!expected || expected.hashSha256 !== dto.hashSha256 || expected.tipo !== dto.tipo) throw new ConflictException('O arquivo nao corresponde ao anexo esperado nesta entrada.');
+    return this.midiasRecebimentoModel.findOne({ recebimentoEquipamentoId: dto.recebimentoEquipamentoId, chaveCliente: dto.chaveCliente }).exec();
+  }
+
+  async create(createMidiasRecebimentoDto: CreateMidiasRecebimentoDto, empresaId?: string, arquivoVerificado = false) {
     await this.assertRecebimentoDaEmpresa(createMidiasRecebimentoDto.recebimentoEquipamentoId, empresaId);
+    if (createMidiasRecebimentoDto.chaveCliente) {
+      if (!arquivoVerificado) throw new ConflictException('Envie o arquivo para vincular uma midia pendente.');
+      const existing = await this.validarUpload(createMidiasRecebimentoDto, empresaId);
+      if (existing) return existing;
+    }
     const createdMidiasRecebimento = new this.midiasRecebimentoModel({
       ...createMidiasRecebimentoDto,
       urlArquivo: this.normalizarUrlArquivo(createMidiasRecebimentoDto.urlArquivo),
       capturadoEm: this.toOptionalDate(createMidiasRecebimentoDto.capturadoEm),
     });
-    return createdMidiasRecebimento.save();
+    try { return await createdMidiasRecebimento.save(); }
+    catch (error) {
+      if ((error as { code?: number }).code === 11000 && createMidiasRecebimentoDto.chaveCliente) {
+        const existing = await this.midiasRecebimentoModel.findOne({ recebimentoEquipamentoId: createMidiasRecebimentoDto.recebimentoEquipamentoId, chaveCliente: createMidiasRecebimentoDto.chaveCliente }).exec();
+        if (existing) return existing;
+      }
+      throw error;
+    }
   }
 
   async findAll(empresaId?: string) {
@@ -43,6 +64,7 @@ export class MidiasRecebimentoService {
     if (!current) {
       throw new NotFoundException('Midia do recebimento nao encontrada.');
     }
+    if (current.chaveCliente) throw new ConflictException('Anexo da entrada composta deve preservar a evidencia original.');
     if (updateMidiasRecebimentoDto.recebimentoEquipamentoId) {
       await this.assertRecebimentoDaEmpresa(updateMidiasRecebimentoDto.recebimentoEquipamentoId, empresaId);
     }
@@ -65,6 +87,7 @@ export class MidiasRecebimentoService {
     if (!current) {
       throw new NotFoundException('Midia do recebimento nao encontrada.');
     }
+    if (current.chaveCliente) throw new ConflictException('Anexo da entrada composta deve preservar a evidencia original.');
 
     return this.midiasRecebimentoModel.findByIdAndDelete(id).exec();
   }

@@ -23,8 +23,20 @@ export class Notificacao {
   @Prop({ required: true })
   mensagem: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, enum: ['preparada', 'enviada', 'lida', 'falha', 'cancelada'] })
   status: string;
+
+  @Prop({ enum: ['manual', 'provedor'] })
+  confirmacaoStatusTipo?: 'manual' | 'provedor';
+
+  @Prop()
+  confirmacaoStatusEm?: Date;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Usuario' })
+  confirmacaoStatusPor?: Types.ObjectId;
+
+  @Prop({ maxlength: 500 })
+  confirmacaoStatusObservacao?: string;
 
   @Prop({ type: Date, default: Date.now })
   criadoEm: Date;

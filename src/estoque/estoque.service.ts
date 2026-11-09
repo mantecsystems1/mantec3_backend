@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import { MovimentosEstoque, MovimentosEstoqueDocument } from './schemas/movimento-estoque.schema';
 import { SaldoEstoque, SaldoEstoqueDocument } from './schemas/saldo-estoque.schema';
 import { Produto, ProdutoDocument } from '../catalogo/produtos/schemas/produto.schema';
@@ -9,7 +9,6 @@ import { UpdateMovimentoEstoqueDto } from './dto/update-movimento-estoque.dto';
 import {
   MOVIMENTO_ESTOQUE_TIPO,
   calcularDisponibilidadeMovimentos,
-  calcularSaldoMovimentos,
   getMovimentoEstoqueSinal,
   isMovimentoEstoqueTipo,
 } from './movimento-estoque.types';
@@ -34,100 +33,94 @@ export class EstoqueService {
     private readonly auditoriaService: AuditoriaService,
   ) {}
 
-  async create(createMovimentoEstoqueDto: CreateMovimentoEstoqueDto, actorId?: string, actorEmpresaId?: string) {
+  async create(createMovimentoEstoqueDto: CreateMovimentoEstoqueDto, actorId?: string, actorEmpresaId?: string, session?: ClientSession) {
     const empresaId = this.getEmpresaIdPermitida(createMovimentoEstoqueDto.empresaId, actorEmpresaId);
     const movimentoData = { ...createMovimentoEstoqueDto, empresaId };
-    await this.assertProdutoDaEmpresa(movimentoData.produtoId, empresaId);
     this.assertMovimentoValido(movimentoData.tipo, movimentoData.quantidade);
-    await this.aplicarMovimentoSaldoAtomico(movimentoData);
-
-    const createdMovimento = new this.movimentosEstoqueModel(movimentoData);
-    let saved: MovimentosEstoqueDocument;
-    try {
-      saved = await createdMovimento.save();
-    } catch (error) {
-      await this.reverterMovimentoSaldoAtomico(movimentoData).catch(() => undefined);
-      throw error;
-    }
-
-    if (actorId) {
-      await this.registrarAuditoriaEstoque(saved, actorId, 'criado');
-    }
-
-    return saved;
+    return this.emTransacao(async (activeSession) => {
+      await this.bloquearProdutos([movimentoData.produtoId], empresaId, activeSession);
+      const saved = await new this.movimentosEstoqueModel(movimentoData).save({ session: activeSession });
+      await this.atualizarSaldos([movimentoData.produtoId], empresaId, activeSession);
+      if (actorId) await this.registrarAuditoriaEstoque(saved, actorId, 'criado');
+      return saved;
+    }, session);
   }
 
   findAll(empresaId?: string) {
     this.assertEmpresaInformada(empresaId);
     return this.movimentosEstoqueModel
       .find({ empresaId })
-      .populate('produtoId', 'nome codigoInterno precoVenda')
+      .populate({ path: 'produtoId', select: 'nome codigoInterno precoVenda', match: { empresaId } })
       .exec();
   }
 
-  findOne(id: string, empresaId?: string) {
+  async findOne(id: string, empresaId?: string) {
     this.assertEmpresaInformada(empresaId);
-    return this.movimentosEstoqueModel
-      .findOne({ _id: id, empresaId })
-      .populate('produtoId', 'nome codigoInterno precoVenda')
-      .exec();
+    let currentId = id;
+    const visited = new Set<string>();
+    while (!visited.has(currentId)) {
+      visited.add(currentId);
+      const current = await this.movimentosEstoqueModel.findOne({ _id: currentId, empresaId })
+        .populate({ path: 'produtoId', select: 'nome codigoInterno precoVenda', match: { empresaId } }).exec();
+      if (!current?.substituidoPorId) return current;
+      currentId = current.substituidoPorId.toString();
+    }
+    throw new ConflictException('Historico de substituicoes inconsistente. Solicite revisao do estoque.');
   }
 
   async update(id: string, updateMovimentoEstoqueDto: UpdateMovimentoEstoqueDto, actorId?: string, actorEmpresaId?: string) {
     this.assertEmpresaInformada(actorEmpresaId);
-    if (updateMovimentoEstoqueDto.tipo || updateMovimentoEstoqueDto.quantidade !== undefined) {
-      this.assertMovimentoValido(
-        updateMovimentoEstoqueDto.tipo ?? '',
-        updateMovimentoEstoqueDto.quantidade ?? 1,
-        Boolean(updateMovimentoEstoqueDto.tipo),
-      );
-    }
-
-    const current = await this.movimentosEstoqueModel.findOne({ _id: id, empresaId: actorEmpresaId }).exec();
-    if (current) {
-      const empresaId = this.getEmpresaIdPermitida(updateMovimentoEstoqueDto.empresaId, actorEmpresaId);
-      const nextMovimento = {
-        produtoId: updateMovimentoEstoqueDto.produtoId ?? current.produtoId?.toString(),
-        tipo: updateMovimentoEstoqueDto.tipo ?? current.tipo,
-        quantidade: updateMovimentoEstoqueDto.quantidade ?? current.quantidade,
-        empresaId,
-      };
-      await this.assertProdutoDaEmpresa(nextMovimento.produtoId, empresaId);
-      await this.assertMovimentoNaoNegativaEstoque(nextMovimento, current);
-    }
-
-    const updated = await this.movimentosEstoqueModel
-      .findOneAndUpdate({ _id: id, empresaId: actorEmpresaId }, { ...updateMovimentoEstoqueDto, empresaId: actorEmpresaId }, { new: true })
-      .exec();
-
-    if (actorId && updated) {
-      await this.registrarAuditoriaEstoque(updated, actorId, 'atualizado');
-    }
-
-    return updated;
+    this.getEmpresaIdPermitida(updateMovimentoEstoqueDto.empresaId, actorEmpresaId);
+    return this.emTransacao(async (session) => {
+      const current = await this.bloquearMovimento(id, actorEmpresaId, session);
+      if (!current) return null;
+      if (current.substituidoPorId) {
+        const replacement = await this.movimentosEstoqueModel.findOne({ _id: current.substituidoPorId, empresaId: actorEmpresaId }).session(session).exec();
+        if (replacement && !replacement.estornadoEm && this.correspondeAlteracao(replacement, updateMovimentoEstoqueDto)) return replacement;
+        throw new ConflictException('Movimento ja substituido. Recarregue o registro antes de alterar.');
+      }
+      this.assertMovimentoEditavel(current);
+      const nextData = { ...this.dadosMovimento(current), ...updateMovimentoEstoqueDto, empresaId: actorEmpresaId };
+      this.assertMovimentoValido(nextData.tipo, nextData.quantidade);
+      if (this.correspondeAlteracao(current, updateMovimentoEstoqueDto)) return current;
+      const produtos = [current.produtoId.toString(), nextData.produtoId];
+      await this.bloquearProdutos(produtos, actorEmpresaId, session);
+      await this.acrescentarEstorno(current, session);
+      const replacement = await new this.movimentosEstoqueModel({ ...nextData, substituiId: current._id }).save({ session });
+      current.substituidoPorId = replacement._id as Types.ObjectId;
+      await current.save({ session });
+      await this.atualizarSaldos(produtos, actorEmpresaId, session);
+      if (actorId) await this.registrarAuditoriaEstoque(replacement, actorId, 'atualizado');
+      return replacement;
+    });
   }
 
-  async remove(id: string, actorId?: string, empresaId?: string) {
+  async remove(id: string, actorId?: string, empresaId?: string, session?: ClientSession) {
     this.assertEmpresaInformada(empresaId);
-    const removed = await this.movimentosEstoqueModel.findOneAndDelete({ _id: id, empresaId }).exec();
-
-    if (actorId && removed) {
-      await this.registrarAuditoriaEstoque(removed, actorId, 'removido');
-    }
-
-    return removed;
+    return this.emTransacao(async (activeSession) => {
+      const current = await this.bloquearMovimento(id, empresaId, activeSession);
+      if (!current) return null;
+      if (current.estornadoEm) return current;
+      this.assertMovimentoEditavel(current);
+      const produtoId = current.produtoId.toString();
+      await this.bloquearProdutos([produtoId], empresaId, activeSession);
+      await this.acrescentarEstorno(current, activeSession);
+      await current.save({ session: activeSession });
+      await this.atualizarSaldos([produtoId], empresaId, activeSession);
+      if (actorId) await this.registrarAuditoriaEstoque(current, actorId, 'removido');
+      return current;
+    }, session);
   }
 
   async getSaldoProduto(produtoId: string, empresaId?: string) {
     this.assertEmpresaInformada(empresaId);
     await this.assertProdutoDaEmpresa(produtoId, empresaId);
     const movimentos = await this.movimentosEstoqueModel.find({ produtoId, empresaId }).exec();
-    const saldo = calcularSaldoMovimentos(movimentos);
     const disponibilidade = calcularDisponibilidadeMovimentos(movimentos);
 
     return {
       produtoId,
-      saldo,
+      saldo: disponibilidade.saldoFisico,
       ...disponibilidade,
       totalMovimentos: movimentos.length,
     };
@@ -152,7 +145,7 @@ export class EstoqueService {
       this.produtoModel.find({ empresaId }).lean().exec(),
       this.movimentosEstoqueModel
         .find({ empresaId })
-        .populate('produtoId', 'nome codigoInterno precoVenda empresaId')
+        .populate({ path: 'produtoId', select: 'nome codigoInterno precoVenda empresaId', match: { empresaId } })
         .exec(),
     ]);
 
@@ -226,130 +219,130 @@ export class EstoqueService {
     }
   }
 
-  private async assertMovimentoNaoNegativaEstoque(
-    movimento: Pick<CreateMovimentoEstoqueDto, 'produtoId' | 'tipo' | 'quantidade'>,
-    movimentoAtual?: MovimentosEstoqueDocument,
-  ) {
-    const tipo = movimento.tipo;
-    const quantidade = Number(movimento.quantidade || 0);
-
-    if (!this.deveValidarSaldo(tipo)) {
-      return;
-    }
-
-    const produtoId = this.getObjectIdString(movimento.produtoId);
-    if (!produtoId) {
-      return;
-    }
-
-    const filtro: Record<string, unknown> = { produtoId };
-    if ('empresaId' in movimento && movimento.empresaId) {
-      filtro.empresaId = movimento.empresaId;
-    }
-    const movimentos = await this.movimentosEstoqueModel.find(filtro).exec();
-    const movimentosConsiderados = movimentoAtual
-      ? movimentos.filter((item) => String(item._id) !== String(movimentoAtual._id))
-      : movimentos;
-    const { disponivel } = calcularDisponibilidadeMovimentos(movimentosConsiderados);
-
-    if (disponivel < quantidade) {
-      throw new BadRequestException(`Saldo insuficiente para movimentar estoque. Disponivel: ${disponivel}. Solicitado: ${quantidade}.`);
-    }
-  }
-
-  private async aplicarMovimentoSaldoAtomico(movimento: Pick<CreateMovimentoEstoqueDto, 'produtoId' | 'tipo' | 'quantidade'> & { empresaId?: string }) {
-    const produtoId = this.getObjectIdString(movimento.produtoId);
-    const empresaId = movimento.empresaId;
-    if (!produtoId || !empresaId) return;
-
-    await this.ensureSaldoEstoque(produtoId, empresaId);
-    const quantidade = Number(movimento.quantidade || 0);
-    const { filtro, inc } = this.operacaoSaldo(movimento.tipo, quantidade);
-    const saldo = await this.saldoEstoqueModel.findOneAndUpdate(
-      { empresaId, produtoId, ...filtro },
-      { $inc: inc },
-      { new: true },
-    ).exec();
-
-    if (!saldo) {
-      throw new BadRequestException(`Saldo insuficiente para movimentar estoque. Solicitado: ${quantidade}.`);
-    }
-  }
-
-  private async reverterMovimentoSaldoAtomico(movimento: Pick<CreateMovimentoEstoqueDto, 'produtoId' | 'tipo' | 'quantidade'> & { empresaId?: string }) {
-    const produtoId = this.getObjectIdString(movimento.produtoId);
-    const empresaId = movimento.empresaId;
-    if (!produtoId || !empresaId) return;
-    const quantidade = Number(movimento.quantidade || 0);
-    const { inc } = this.operacaoSaldo(movimento.tipo, quantidade);
-    await this.saldoEstoqueModel.findOneAndUpdate(
-      { empresaId, produtoId },
-      {
-        $inc: {
-          saldoFisico: -Number(inc.saldoFisico ?? 0),
-          reservado: -Number(inc.reservado ?? 0),
-          disponivel: -Number(inc.disponivel ?? 0),
-        },
-      },
-    ).exec();
-  }
-
-  private async ensureSaldoEstoque(produtoId: string, empresaId: string) {
-    const existing = await this.saldoEstoqueModel.exists({ empresaId, produtoId }).exec();
-    if (existing) return;
-
-    const movimentos = await this.movimentosEstoqueModel.find({ empresaId, produtoId }).exec();
-    const disponibilidade = calcularDisponibilidadeMovimentos(movimentos);
-    try {
-      await this.saldoEstoqueModel.findOneAndUpdate(
-        { empresaId, produtoId },
-        { $setOnInsert: { empresaId, produtoId, ...disponibilidade } },
-        { upsert: true, new: true },
-      ).exec();
-    } catch (error) {
-      if (!this.isDuplicateKeyError(error)) throw error;
-    }
-  }
-
-  private operacaoSaldo(tipo: string, quantidade: number) {
-    if (tipo === MOVIMENTO_ESTOQUE_TIPO.RESERVA_OS) {
-      return {
-        filtro: { disponivel: { $gte: quantidade } },
-        inc: { reservado: quantidade, disponivel: -quantidade },
+  /** Reuses an outer transaction; never starts a nested independent commit. */
+  async emTransacao<T>(work: (session: ClientSession) => Promise<T>, session?: ClientSession): Promise<T> {
+    const base = this.movimentosEstoqueModel.db.base as unknown as {
+      transactionAsyncLocalStorage?: {
+        getStore(): { session?: ClientSession } | undefined;
+        run<R>(store: { session: ClientSession }, callback: () => R): R;
       };
-    }
-
-    if (tipo === MOVIMENTO_ESTOQUE_TIPO.ESTORNO_RESERVA) {
-      return {
-        filtro: { reservado: { $gte: quantidade } },
-        inc: { reservado: -quantidade, disponivel: quantidade },
-      };
-    }
-
-    if ([MOVIMENTO_ESTOQUE_TIPO.ENTRADA, MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA, MOVIMENTO_ESTOQUE_TIPO.ESTORNO_OS, MOVIMENTO_ESTOQUE_TIPO.TROCA_GARANTIA].includes(tipo as never)) {
-      return {
-        filtro: {},
-        inc: { saldoFisico: quantidade, disponivel: quantidade },
-      };
-    }
-
-    return {
-      filtro: { saldoFisico: { $gte: quantidade }, disponivel: { $gte: quantidade } },
-      inc: { saldoFisico: -quantidade, disponivel: -quantidade },
     };
-  }
-
-  private isDuplicateKeyError(error: unknown) {
-    const e = error as { code?: number };
-    return e?.code === 11000;
-  }
-
-  private deveValidarSaldo(tipo: string) {
-    if (tipo === MOVIMENTO_ESTOQUE_TIPO.ESTORNO_RESERVA) {
-      return false;
+    const storage = base.transactionAsyncLocalStorage;
+    const inherited = storage?.getStore()?.session;
+    const active = session ?? inherited;
+    if (active) {
+      return storage && inherited !== active ? storage.run({ session: active }, () => work(active)) : work(active);
     }
+    return this.movimentosEstoqueModel.db.transaction(work);
+  }
 
-    return getMovimentoEstoqueSinal(tipo) < 0;
+  /** Replaces the active purchase-origin inputs atomically, preserving every ledger event. */
+  async sincronizarEntradasOrigem(
+    empresaId: string, origemTipo: string, origemId: string,
+    itens: Array<{ produtoId: string; quantidade: number }>, actorId?: string,
+  ) {
+    this.assertEmpresaInformada(empresaId);
+    return this.emTransacao(async (session) => {
+      const current = await this.movimentosEstoqueModel.find({
+        empresaId, origemTipo, origemId, tipo: MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA,
+        estornadoEm: { $exists: false }, estornoDeId: { $exists: false },
+      }).session(session).exec();
+      const wanted = new Map<string, number>();
+      for (const item of itens) {
+        this.assertMovimentoValido(MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA, item.quantidade);
+        wanted.set(item.produtoId, (wanted.get(item.produtoId) ?? 0) + Number(item.quantidade));
+      }
+      const produtos = [...new Set([...current.map(item => item.produtoId.toString()), ...wanted.keys()])].sort();
+      // Lock before reading the origin again: a competing sync must retry with a fresh snapshot.
+      await this.bloquearProdutos(produtos, empresaId, session);
+      const existing = new Map<string, number>();
+      for (const item of current) existing.set(item.produtoId.toString(), (existing.get(item.produtoId.toString()) ?? 0) + item.quantidade);
+      if (existing.size === wanted.size && [...wanted].every(([id, amount]) => existing.get(id) === amount)) {
+        // Also repair a preexisting cache divergence from the authoritative ledger.
+        await this.atualizarSaldos(produtos, empresaId, session);
+        return current;
+      }
+      for (const item of current) {
+        await this.acrescentarEstorno(item, session);
+        await item.save({ session });
+        if (actorId) await this.registrarAuditoriaEstoque(item, actorId, 'removido');
+      }
+      const replacements: MovimentosEstoqueDocument[] = [];
+      for (const [produtoId, quantidade] of wanted) {
+        const saved = await new this.movimentosEstoqueModel({
+          empresaId, produtoId, quantidade, origemTipo, origemId, tipo: MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA,
+        }).save({ session });
+        replacements.push(saved);
+        if (actorId) await this.registrarAuditoriaEstoque(saved, actorId, 'criado');
+      }
+      await this.atualizarSaldos(produtos, empresaId, session);
+      return replacements;
+    });
+  }
+
+  /** Read-only diagnostic: reports ledger/cache differences without changing either. */
+  async diagnosticarSaldos(empresaId: string) {
+    this.assertEmpresaInformada(empresaId);
+    return this.emTransacao(async (session) => {
+      const movimentos = await this.movimentosEstoqueModel.find({ empresaId }).session(session).lean().exec();
+      const caches = await this.saldoEstoqueModel.find({ empresaId }).session(session).lean().exec();
+      const ids = new Set([...movimentos.map(item => item.produtoId.toString()), ...caches.map(item => item.produtoId.toString())]);
+      return [...ids].map(produtoId => {
+        const ledger = calcularDisponibilidadeMovimentos(movimentos.filter(item => item.produtoId.toString() === produtoId));
+        const cache = caches.find(item => item.produtoId.toString() === produtoId);
+        return { produtoId, ledger, cache: cache ? { saldoFisico: cache.saldoFisico, reservado: cache.reservado, disponivel: cache.disponivel } : null,
+          divergente: !cache || ledger.saldoFisico !== cache.saldoFisico || ledger.reservado !== cache.reservado || ledger.disponivel !== cache.disponivel };
+      });
+    });
+  }
+
+  private dadosMovimento(movimento: MovimentosEstoqueDocument): CreateMovimentoEstoqueDto {
+    return { empresaId: movimento.empresaId.toString(), produtoId: movimento.produtoId.toString(),
+      tipo: movimento.tipo, quantidade: movimento.quantidade, origemTipo: movimento.origemTipo, origemId: movimento.origemId.toString() };
+  }
+
+  private correspondeAlteracao(movimento: MovimentosEstoqueDocument, dto: UpdateMovimentoEstoqueDto) {
+    const data = this.dadosMovimento(movimento);
+    return (Object.keys(dto) as Array<keyof CreateMovimentoEstoqueDto>).every(key =>
+      dto[key] === undefined || String(dto[key]) === String(data[key]));
+  }
+
+  private assertMovimentoEditavel(movimento: MovimentosEstoqueDocument) {
+    if (movimento.estornoDeId || movimento.estornadoEm) {
+      throw new ConflictException('Movimento ja estornado ou compensatorio. Recarregue o historico do estoque.');
+    }
+  }
+
+  private bloquearMovimento(id: string, empresaId: string, session: ClientSession) {
+    return this.movimentosEstoqueModel.findOneAndUpdate({ _id: id, empresaId }, { $inc: { __v: 1 } }, { new: true, session }).exec();
+  }
+
+  private async bloquearProdutos(produtos: string[], empresaId: string, session: ClientSession) {
+    for (const produtoId of [...new Set(produtos)].sort()) {
+      const produto = await this.produtoModel.findOneAndUpdate({ _id: produtoId, empresaId }, { $inc: { __v: 1 } }, { new: true, session }).select('_id').exec();
+      if (!produto) throw new BadRequestException('Produto nao encontrado para a empresa do usuario.');
+    }
+  }
+
+  private async acrescentarEstorno(current: MovimentosEstoqueDocument, session: ClientSession) {
+    const tipo = current.tipo === MOVIMENTO_ESTOQUE_TIPO.RESERVA_OS ? MOVIMENTO_ESTOQUE_TIPO.ESTORNO_RESERVA
+      : current.tipo === MOVIMENTO_ESTOQUE_TIPO.ESTORNO_RESERVA ? MOVIMENTO_ESTOQUE_TIPO.RESERVA_OS
+      : getMovimentoEstoqueSinal(current.tipo) > 0 ? MOVIMENTO_ESTOQUE_TIPO.SAIDA : MOVIMENTO_ESTOQUE_TIPO.ENTRADA;
+    const reverse = await new this.movimentosEstoqueModel({ ...this.dadosMovimento(current), tipo, estornoDeId: current._id }).save({ session });
+    current.estornoId = reverse._id as Types.ObjectId;
+    current.estornadoEm = new Date();
+    return reverse;
+  }
+
+  private async atualizarSaldos(produtos: string[], empresaId: string, session: ClientSession) {
+    for (const produtoId of [...new Set(produtos)].sort()) {
+      const movimentos = await this.movimentosEstoqueModel.find({ empresaId, produtoId }).session(session).exec();
+      const saldo = calcularDisponibilidadeMovimentos(movimentos);
+      if (saldo.saldoFisico < 0 || saldo.reservado < 0 || saldo.disponivel < 0) {
+        throw new BadRequestException('Operacao deixaria o estoque insuficiente ou reservas inconsistentes. Confira os movimentos vinculados.');
+      }
+      await this.saldoEstoqueModel.findOneAndUpdate({ empresaId, produtoId }, { $set: saldo }, { upsert: true, new: true, session }).exec();
+    }
   }
 
   private getObjectIdString(value: unknown) {
@@ -425,6 +418,10 @@ export class EstoqueService {
         quantidade: movimento.quantidade,
         origemTipo: movimento.origemTipo,
         origemId: movimento.origemId?.toString(),
+        estornoDeId: movimento.estornoDeId?.toString(),
+        estornoId: movimento.estornoId?.toString(),
+        substituiId: movimento.substituiId?.toString(),
+        substituidoPorId: movimento.substituidoPorId?.toString(),
       },
     });
   }

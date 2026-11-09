@@ -37,6 +37,10 @@ export class MidiasRecebimento {
 
   @Prop()
   capturadoEm?: Date;
+
+  @Prop()
+  chaveCliente?: string;
 }
 
 export const MidiasRecebimentoSchema = SchemaFactory.createForClass(MidiasRecebimento);
+MidiasRecebimentoSchema.index({ recebimentoEquipamentoId: 1, chaveCliente: 1 }, { unique: true, partialFilterExpression: { chaveCliente: { $type: 'string' } } });

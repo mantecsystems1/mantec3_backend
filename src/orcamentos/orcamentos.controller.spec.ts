@@ -24,7 +24,7 @@ describe('OrcamentosController', () => {
 
     controller.enviar('orc-1', user);
 
-    expect(service.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.ENVIADO }, 'emp-1');
+    expect(service.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.ENVIADO }, 'emp-1', user);
   });
 
   it('aprova orcamento usando status explicito', () => {
@@ -32,7 +32,7 @@ describe('OrcamentosController', () => {
 
     controller.aprovar('orc-1', user);
 
-    expect(service.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.APROVADO }, 'emp-1');
+    expect(service.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.APROVADO }, 'emp-1', user);
   });
 
   it('reprova orcamento usando status explicito', () => {
@@ -40,7 +40,7 @@ describe('OrcamentosController', () => {
 
     controller.reprovar('orc-1', user);
 
-    expect(service.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.REPROVADO }, 'emp-1');
+    expect(service.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.REPROVADO }, 'emp-1', user);
   });
 
   it('cancela orcamento usando status explicito', () => {
@@ -48,7 +48,7 @@ describe('OrcamentosController', () => {
 
     controller.cancelar('orc-1', user);
 
-    expect(service.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.CANCELADO }, 'emp-1');
+    expect(service.update).toHaveBeenCalledWith('orc-1', { status: ORCAMENTO_STATUS.CANCELADO }, 'emp-1', user);
   });
 
   it('gera OS a partir do orcamento aprovado', () => {

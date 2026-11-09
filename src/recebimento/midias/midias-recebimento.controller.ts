@@ -12,6 +12,7 @@ import { CurrentUser, type CurrentUserPayload } from '../../common/decorators/cu
 import { RequireEvento } from '../../common/decorators/require-evento.decorator';
 import { EVENTOS_NEGOCIO } from '../../permissoes/matriz-permissoes';
 import { acceptUpload } from '../../common/uploads/upload-content';
+import { removeUploadTemporaryFile } from '../../common/uploads/upload-storage';
 
 mkdirSync('./uploads/recebimentos', { recursive: true });
 
@@ -65,12 +66,19 @@ export class MidiasRecebimentoController {
       throw new BadRequestException('Arquivo da midia e obrigatorio.');
     }
 
+    const hashSha256 = createHash('sha256').update(readFileSync(file.path)).digest('hex');
+    // Check ownership and a replay before moving any new bytes into permanent storage.
+    try {
+      const existing = await this.midiasRecebimentoService.validarUpload({ ...body, hashSha256, urlArquivo: `/uploads/recebimentos/${file.filename}` }, user?.empresaId);
+      if (existing) { await removeUploadTemporaryFile(file.path); return existing; }
+    } catch (error) { await removeUploadTemporaryFile(file.path); throw error; }
+
     return acceptUpload('recebimentos', file, () => {
-      const hashSha256 = createHash('sha256').update(readFileSync(file.path)).digest('hex');
 
       return this.midiasRecebimentoService.create(
         {
           recebimentoEquipamentoId: body.recebimentoEquipamentoId,
+          chaveCliente: body.chaveCliente,
           tipo: body.tipo,
           descricao: body.descricao,
           urlArquivo: `/uploads/recebimentos/${file.filename}`,
@@ -83,6 +91,7 @@ export class MidiasRecebimentoController {
           capturadoEm: body.capturadoEm ?? new Date().toISOString(),
         },
         user?.empresaId,
+        true,
       );
     });
   }

@@ -34,6 +34,10 @@ import { AnexoFinanceiro, AnexoFinanceiroDocument, ANEXO_FINANCEIRO_VINCULO_TIPO
 import { FechamentoMensalFinanceiro, FechamentoMensalFinanceiroDocument, FECHAMENTO_MENSAL_STATUS } from './schemas/fechamento-mensal-financeiro.schema';
 import { buildSimpleXlsx, createZip, SimpleXlsxSheet, ZipEntry } from './simple-xlsx';
 import { readUploadUrl } from '../../common/uploads/upload-storage';
+import { executarTransacaoFinanceira, totalPagamentosValidosCentavos } from '../vendas/venda-pagamentos-validos';
+import { calcularStatusFinanceiroVenda } from '../vendas/venda-financeiro.states';
+import type { Pagamento } from '../pagamentos/schemas/pagamento.schema';
+import type { Venda } from '../vendas/schemas/venda.schema';
 import {
   CATEGORIA_FINANCEIRA_CLASSIFICACAO,
   CATEGORIA_FINANCEIRA_TIPO,
@@ -101,6 +105,7 @@ interface BaixarTituloIntegradoInput {
   origemId: string;
   descricao: string;
   observacoes?: string;
+  idempotencyKey?: string;
 }
 
 interface UploadedFinanceiroFile {
@@ -603,9 +608,23 @@ export class FinanceiroAdmService {
   }
 
   async estornarMovimento(id: string, dto: EstornarMovimentoCaixaDto, actorId?: string, actorEmpresaId?: string) {
+    return executarTransacaoFinanceira(this.movimentoModel.db, () => this.estornarMovimentoAtomic(id, dto, actorId, actorEmpresaId));
+  }
+
+  private async estornarMovimentoAtomic(id: string, dto: EstornarMovimentoCaixaDto, actorId?: string, actorEmpresaId?: string) {
     const movimento = await this.getMovimentoDaEmpresa(id, actorEmpresaId);
     if (movimento.status === MOVIMENTO_CAIXA_STATUS.ESTORNADO) {
       throw new BadRequestException('Movimento ja estornado.');
+    }
+    let vendaPagamento: { _id: unknown; empresaId: unknown; total: unknown; statusFinanceiro: string } | null = null;
+    if (movimento.origemTipo === 'pagamento_venda' && movimento.origemId) {
+      const pagamento = await this.movimentoModel.db.model<Pagamento>('Pagamento').findById(movimento.origemId).lean().exec();
+      if (pagamento) {
+        vendaPagamento = await this.movimentoModel.db.model<Venda>('Venda').findOneAndUpdate(
+          { _id: pagamento.vendaId, empresaId: movimento.empresaId }, { $inc: { __v: 1 } }, { new: true },
+        ).lean().exec();
+        if (!vendaPagamento) throw new NotFoundException('Venda nao encontrada.');
+      }
     }
     await this.assertPeriodoFinanceiroAberto(movimento.empresaId.toString(), movimento.dataMovimento, 'estornar movimento de caixa');
 
@@ -641,6 +660,12 @@ export class FinanceiroAdmService {
       valor: centavosParaString(dinheiroParaCentavos(estornado.valor)),
       motivo: dto.motivo,
     });
+
+    if (vendaPagamento && vendaPagamento.statusFinanceiro !== 'cancelado') {
+      const totalPago = await totalPagamentosValidosCentavos(this.movimentoModel.db, String(vendaPagamento._id), String(vendaPagamento.empresaId));
+      await this.movimentoModel.db.model('Venda').findByIdAndUpdate(vendaPagamento._id,
+        { statusFinanceiro: calcularStatusFinanceiroVenda(vendaPagamento.total, totalPago / 100) }).exec();
+    }
 
     return estornado;
   }
@@ -1498,6 +1523,11 @@ export class FinanceiroAdmService {
       ? await this.getContaDaEmpresa(contaFinanceiraId, actorEmpresaId)
       : await this.getOuCriarContaIntegracao(empresaId, pagamento.formaPagamento, actorId);
 
+    // An edited payment creates a new cash entry while retaining the reversal history.
+    // The sale lock in PagamentosService serializes this revision number.
+    const revisao = await this.movimentoModel.countDocuments({
+      empresaId, origemTipo: 'pagamento_venda', origemId: pagamento._id, status: MOVIMENTO_CAIXA_STATUS.ESTORNADO,
+    }).exec();
     return this.baixarTituloComMovimento({
       titulo,
       contaId: (conta._id as Types.ObjectId).toString(),
@@ -1506,6 +1536,7 @@ export class FinanceiroAdmService {
       formaPagamento: normalizarFormaPagamentoFinanceiro(pagamento.formaPagamento ?? ''),
       origemTipo: 'pagamento_venda',
       origemId: pagamentoId,
+      idempotencyKey: revisao ? `pagamento_venda:${pagamentoId}:revisao:${revisao}` : `pagamento_venda:${pagamentoId}`,
       descricao: `Pagamento da venda ${this.shortId(venda._id?.toString())}`,
       observacoes: 'Baixa gerada automaticamente pelo pagamento da venda.',
     }, actorId, actorEmpresaId);
@@ -1707,7 +1738,7 @@ export class FinanceiroAdmService {
       origemTipo: input.origemTipo,
       origemId: input.origemId,
       observacoes: input.observacoes,
-      idempotencyKey: `${input.origemTipo}:${input.origemId}`,
+      idempotencyKey: input.idempotencyKey ?? `${input.origemTipo}:${input.origemId}`,
       idempotencyHash: this.hashJson({
         contaId: conta._id?.toString(),
         valorCentavos: valorBaixaCentavos,

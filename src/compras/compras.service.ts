@@ -4,14 +4,14 @@ import { Model, Types } from 'mongoose';
 import { Fornecedor, FornecedorDocument } from './schemas/fornecedor.schema';
 import { PedidosCompra, PedidosCompraDocument } from './schemas/pedido-compra.schema';
 import { ItensPedidoCompra, ItensPedidoCompraDocument } from './schemas/itens-pedido-compra.schema';
-import { MovimentosEstoque, MovimentosEstoqueDocument } from '../estoque/schemas/movimento-estoque.schema';
+import { EstoqueService } from '../estoque/estoque.service';
 import { CreateFornecedorDto } from './dto/create-fornecedor.dto';
 import { UpdateFornecedorDto } from './dto/update-fornecedor.dto';
 import { CreatePedidoCompraDto } from './dto/create-pedido-compra.dto';
 import { UpdatePedidoCompraDto } from './dto/update-pedido-compra.dto';
 import { CreateItensPedidoCompraDto } from './dto/create-itens-pedido-compra.dto';
 import { UpdateItensPedidoCompraDto } from './dto/update-itens-pedido-compra.dto';
-import { MOVIMENTO_ESTOQUE_ORIGEM, MOVIMENTO_ESTOQUE_TIPO } from '../estoque/movimento-estoque.types';
+import { MOVIMENTO_ESTOQUE_ORIGEM } from '../estoque/movimento-estoque.types';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
 import { FinanceiroAdmService } from '../financeiro/financeiro-adm/financeiro-adm.service';
@@ -25,7 +25,7 @@ export class ComprasService {
     @InjectModel(Fornecedor.name) private fornecedorModel: Model<FornecedorDocument>,
     @InjectModel(PedidosCompra.name) private pedidosCompraModel: Model<PedidosCompraDocument>,
     @InjectModel(ItensPedidoCompra.name) private itensPedidoCompraModel: Model<ItensPedidoCompraDocument>,
-    @InjectModel(MovimentosEstoque.name) private movimentosEstoqueModel: Model<MovimentosEstoqueDocument>,
+    private readonly estoqueService: EstoqueService,
     private readonly auditoriaService: AuditoriaService,
     private readonly financeiroAdmService: FinanceiroAdmService,
   ) { }
@@ -106,6 +106,10 @@ export class ComprasService {
 
   // PedidosCompra CRUD
   async createPedidoCompra(createPedidoCompraDto: CreatePedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
+    return this.estoqueService.emTransacao(() => this.createPedidoCompraAtomic(createPedidoCompraDto, actorId, actorEmpresaId));
+  }
+
+  private async createPedidoCompraAtomic(createPedidoCompraDto: CreatePedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
     try {
       const { itens = [], ...pedidoDto } = createPedidoCompraDto;
       this.assertEmpresaPermitida(pedidoDto.empresaId, actorEmpresaId);
@@ -164,6 +168,10 @@ export class ComprasService {
   }
 
   async updatePedidoCompra(id: string, updatePedidoCompraDto: UpdatePedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
+    return this.estoqueService.emTransacao(() => this.updatePedidoCompraAtomic(id, updatePedidoCompraDto, actorId, actorEmpresaId));
+  }
+
+  private async updatePedidoCompraAtomic(id: string, updatePedidoCompraDto: UpdatePedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
     try {
       const { itens, ...pedidoDto } = updatePedidoCompraDto;
       if (pedidoDto.empresaId) {
@@ -232,6 +240,10 @@ export class ComprasService {
   }
 
   async removePedidoCompra(id: string, actorId?: string, actorEmpresaId?: string) {
+    return this.estoqueService.emTransacao(() => this.removePedidoCompraAtomic(id, actorId, actorEmpresaId));
+  }
+
+  private async removePedidoCompraAtomic(id: string, actorId?: string, actorEmpresaId?: string) {
     const pedido = await this.pedidosCompraModel.findOne(this.getEmpresaQuery(actorEmpresaId, { _id: id })).exec();
     if (!pedido) {
       throw new NotFoundException('Pedido de compra nao encontrado');
@@ -264,6 +276,15 @@ export class ComprasService {
     actorEmpresaId?: string,
     syncFinanceiro = true,
   ) {
+    return this.estoqueService.emTransacao(() => this.createItensPedidoCompraAtomic(createItensPedidoCompraDto, actorId, actorEmpresaId, syncFinanceiro));
+  }
+
+  private async createItensPedidoCompraAtomic(
+    createItensPedidoCompraDto: CreateItensPedidoCompraDto,
+    actorId?: string,
+    actorEmpresaId?: string,
+    syncFinanceiro = true,
+  ) {
     try {
       await this.assertPedidoCompraPertenceEmpresa(createItensPedidoCompraDto.pedidoCompraId, actorEmpresaId);
 
@@ -289,6 +310,8 @@ export class ComprasService {
       }
 
       if (syncFinanceiro) {
+        const pedido = await this.pedidosCompraModel.findById(createItensPedidoCompraDto.pedidoCompraId).lean().exec();
+        if (pedido) await this.sincronizarEntradaEstoquePedido(createItensPedidoCompraDto.pedidoCompraId, pedido.status);
         await this.sincronizarFinanceiroPedidoCompraPorId(createItensPedidoCompraDto.pedidoCompraId, actorId, actorEmpresaId);
       }
 
@@ -327,6 +350,10 @@ export class ComprasService {
   }
 
   async updateItensPedidoCompra(id: string, updateItensPedidoCompraDto: UpdateItensPedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
+    return this.estoqueService.emTransacao(() => this.updateItensPedidoCompraAtomic(id, updateItensPedidoCompraDto, actorId, actorEmpresaId));
+  }
+
+  private async updateItensPedidoCompraAtomic(id: string, updateItensPedidoCompraDto: UpdateItensPedidoCompraDto, actorId?: string, actorEmpresaId?: string) {
     const existing = await this.itensPedidoCompraModel.findById(id).exec();
     if (!existing) {
       throw new NotFoundException('Item de pedido de compra nao encontrado');
@@ -351,9 +378,11 @@ export class ComprasService {
     }
 
     if (item) {
+      await this.sincronizarEstoquePedidoPorId(pedidoCompraIdAnterior);
       await this.sincronizarFinanceiroPedidoCompraPorId(pedidoCompraIdAnterior, actorId, actorEmpresaId);
       const pedidoCompraIdAtual = item.pedidoCompraId.toString();
       if (pedidoCompraIdAtual !== pedidoCompraIdAnterior) {
+        await this.sincronizarEstoquePedidoPorId(pedidoCompraIdAtual);
         await this.sincronizarFinanceiroPedidoCompraPorId(pedidoCompraIdAtual, actorId, actorEmpresaId);
       }
     }
@@ -362,6 +391,10 @@ export class ComprasService {
   }
 
   async removeItensPedidoCompra(id: string, actorId?: string, actorEmpresaId?: string) {
+    return this.estoqueService.emTransacao(() => this.removeItensPedidoCompraAtomic(id, actorId, actorEmpresaId));
+  }
+
+  private async removeItensPedidoCompraAtomic(id: string, actorId?: string, actorEmpresaId?: string) {
     const existing = await this.itensPedidoCompraModel.findById(id).exec();
     if (!existing) {
       throw new NotFoundException('Item de pedido de compra nao encontrado');
@@ -375,6 +408,7 @@ export class ComprasService {
       await this.registrarAuditoriaItemPedidoCompra(item, actorId, 'removido');
     }
 
+    await this.sincronizarEstoquePedidoPorId(existing.pedidoCompraId.toString());
     await this.sincronizarFinanceiroPedidoCompraPorId(existing.pedidoCompraId.toString(), actorId, actorEmpresaId);
 
     return item;
@@ -399,33 +433,23 @@ export class ComprasService {
     };
   }
 
+  private async sincronizarEstoquePedidoPorId(id: string) {
+    const pedido = await this.pedidosCompraModel.findById(id).lean().exec();
+    if (pedido) await this.sincronizarEntradaEstoquePedido(id, pedido.status);
+  }
+
   private async sincronizarEntradaEstoquePedido(pedidoCompraId: string, status?: string) {
-    await this.removerEntradasEstoquePedido(pedidoCompraId);
-
-    if (status !== PEDIDO_COMPRA_STATUS_RECEBIDO) {
-      return;
-    }
-
     const pedido = await this.pedidosCompraModel.findById(pedidoCompraId).lean().exec();
     if (!pedido) {
       throw new BadRequestException('Pedido de compra nao encontrado para entrada no estoque.');
     }
 
-    const itens = await this.itensPedidoCompraModel.find({ pedidoCompraId }).lean().exec();
-    const movimentos = itens
-      .filter((item) => Number(item.quantidade) > 0)
-      .map((item) => ({
-        empresaId: pedido.empresaId,
-        produtoId: item.produtoId,
-        tipo: MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA,
-        quantidade: Number(item.quantidade),
-        origemTipo: MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA,
-        origemId: new Types.ObjectId(pedidoCompraId),
-      }));
-
-    if (movimentos.length > 0) {
-      await this.movimentosEstoqueModel.insertMany(movimentos);
-    }
+    const itens = status === PEDIDO_COMPRA_STATUS_RECEBIDO
+      ? await this.itensPedidoCompraModel.find({ pedidoCompraId }).lean().exec() : [];
+    await this.estoqueService.sincronizarEntradasOrigem(
+      pedido.empresaId.toString(), MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA, pedidoCompraId,
+      itens.map(item => ({ produtoId: item.produtoId.toString(), quantidade: Number(item.quantidade) })),
+    );
   }
 
   private async removerEntradasEstoquePedido(pedidoCompraId: string) {
@@ -433,11 +457,7 @@ export class ComprasService {
       return;
     }
 
-    await this.movimentosEstoqueModel.deleteMany({
-      tipo: MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA,
-      origemTipo: MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA,
-      origemId: new Types.ObjectId(pedidoCompraId),
-    });
+    await this.sincronizarEntradaEstoquePedido(pedidoCompraId, 'cancelado');
   }
 
   private getEmpresaQuery(empresaId?: string, base: Record<string, unknown> = {}) {

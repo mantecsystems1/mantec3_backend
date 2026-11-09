@@ -22,6 +22,31 @@ export class Endereco {
 }
 const EnderecoSchema = SchemaFactory.createForClass(Endereco);
 
+@Schema({ _id: false })
+export class PixEmpresa {
+  @Prop({ required: true, default: false })
+  habilitado: boolean;
+
+  @Prop({ enum: ['cpf', 'cnpj', 'email', 'telefone', 'aleatoria'] })
+  tipoChave?: string;
+
+  @Prop()
+  chave?: string;
+
+  @Prop()
+  nomeBeneficiario?: string;
+
+  @Prop()
+  cidadeBeneficiario?: string;
+
+  @Prop()
+  atualizadoEm?: Date;
+
+  @Prop()
+  atualizadoPor?: string;
+}
+const PixEmpresaSchema = SchemaFactory.createForClass(PixEmpresa);
+
 @Schema({ timestamps: { createdAt: 'criadoEm', updatedAt: 'atualizadoEm' } })
 export class Empresa {
   @Prop({ required: true })
@@ -47,6 +72,9 @@ export class Empresa {
 
   @Prop({ default: true })
   ativa: boolean;
+
+  @Prop({ type: PixEmpresaSchema, default: undefined })
+  pix?: PixEmpresa;
 
   criadoEm: Date;
   atualizadoEm: Date;

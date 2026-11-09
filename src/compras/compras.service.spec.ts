@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import { ComprasService } from './compras.service';
-import { MOVIMENTO_ESTOQUE_ORIGEM, MOVIMENTO_ESTOQUE_TIPO } from '../estoque/movimento-estoque.types';
+import { MOVIMENTO_ESTOQUE_ORIGEM } from '../estoque/movimento-estoque.types';
 
 describe('ComprasService', () => {
   const createService = ({
@@ -39,9 +39,9 @@ describe('ComprasService', () => {
       find: jest.fn().mockReturnValue(itemFindChain),
     };
 
-    const movimentosEstoqueModel = {
-      deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
-      insertMany: jest.fn().mockResolvedValue([]),
+    const estoqueService = {
+      sincronizarEntradasOrigem: jest.fn().mockResolvedValue([]),
+      emTransacao: jest.fn((work: () => unknown) => work()),
     };
 
     const auditoriaService = {
@@ -57,7 +57,7 @@ describe('ComprasService', () => {
       {} as never,
       pedidosCompraModel as never,
       itensPedidoCompraModel as never,
-      movimentosEstoqueModel as never,
+      estoqueService as never,
       auditoriaService as never,
       financeiroAdmService as never,
     );
@@ -66,7 +66,7 @@ describe('ComprasService', () => {
       service,
       pedidosCompraModel,
       itensPedidoCompraModel,
-      movimentosEstoqueModel,
+      estoqueService,
       pedidoFindChain,
       itemFindChain,
     };
@@ -76,7 +76,7 @@ describe('ComprasService', () => {
     const pedidoCompraId = new Types.ObjectId().toString();
     const empresaId = new Types.ObjectId();
     const produtoId = new Types.ObjectId();
-    const { service, movimentosEstoqueModel } = createService({
+    const { service, estoqueService } = createService({
       pedido: { _id: pedidoCompraId, empresaId },
       itens: [{ produtoId, quantidade: 3 }],
     });
@@ -84,34 +84,22 @@ describe('ComprasService', () => {
     await (service as unknown as { sincronizarEntradaEstoquePedido: (id: string, status: string) => Promise<void> })
       .sincronizarEntradaEstoquePedido(pedidoCompraId, 'recebido');
 
-    expect(movimentosEstoqueModel.deleteMany).toHaveBeenCalledWith({
-      tipo: MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA,
-      origemTipo: MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA,
-      origemId: new Types.ObjectId(pedidoCompraId),
-    });
-    expect(movimentosEstoqueModel.insertMany).toHaveBeenCalledWith([
-      {
-        empresaId,
-        produtoId,
-        tipo: MOVIMENTO_ESTOQUE_TIPO.ENTRADA_COMPRA,
-        quantidade: 3,
-        origemTipo: MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA,
-        origemId: new Types.ObjectId(pedidoCompraId),
-      },
-    ]);
+    expect(estoqueService.sincronizarEntradasOrigem).toHaveBeenCalledWith(
+      empresaId.toString(), MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA, pedidoCompraId,
+      [{ produtoId: produtoId.toString(), quantidade: 3 }],
+    );
   });
 
-  it('remove entradas antigas e nao gera movimento quando pedido nao esta recebido', async () => {
+  it('estorna entradas antigas sem apagar historico quando pedido deixa de recebido', async () => {
     const pedidoCompraId = new Types.ObjectId().toString();
-    const { service, movimentosEstoqueModel, pedidosCompraModel, itensPedidoCompraModel } = createService({});
-
+    const empresaId = new Types.ObjectId();
+    const { service, estoqueService, itensPedidoCompraModel } = createService({ pedido: { _id: pedidoCompraId, empresaId } });
     await (service as unknown as { sincronizarEntradaEstoquePedido: (id: string, status: string) => Promise<void> })
       .sincronizarEntradaEstoquePedido(pedidoCompraId, 'cancelado');
-
-    expect(movimentosEstoqueModel.deleteMany).toHaveBeenCalled();
-    expect(pedidosCompraModel.findById).not.toHaveBeenCalled();
+    expect(estoqueService.sincronizarEntradasOrigem).toHaveBeenCalledWith(
+      empresaId.toString(), MOVIMENTO_ESTOQUE_ORIGEM.PEDIDO_COMPRA, pedidoCompraId, [],
+    );
     expect(itensPedidoCompraModel.find).not.toHaveBeenCalled();
-    expect(movimentosEstoqueModel.insertMany).not.toHaveBeenCalled();
   });
 
   it('filtra itens de pedido de compra pela empresa do usuario', async () => {

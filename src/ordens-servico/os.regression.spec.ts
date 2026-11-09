@@ -3,6 +3,7 @@ describe('Data de conclusao da OS', () => {
   it('registra o instante real ao concluir o servico', async () => {
     const exec = jest.fn().mockResolvedValue({});
     const model = {
+      db: { transaction: (work: () => Promise<unknown>) => work() },
       findOne: () => ({ exec: async () => ({ statusOperacional: 'em_execucao', empresaId: 'empresa', tecnicoId: 'tecnico' }) }),
       findOneAndUpdate: jest.fn(() => ({ exec })),
     };

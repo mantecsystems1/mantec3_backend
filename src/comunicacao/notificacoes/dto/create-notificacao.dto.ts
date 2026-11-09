@@ -20,7 +20,7 @@ export class CreateNotificacaoDto {
   @IsString()
   mensagem: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   status: string;
 }
