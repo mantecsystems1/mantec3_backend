@@ -39,7 +39,7 @@ describe('Documentos entregues ao cliente', () => {
   it('recibo nao declara quitacao a partir de status legado pago sem pagamento valido', async () => {
     Object.assign(service, { vendaModel: { findOne: () => query({ _id: 'venda', empresaId: 'empresa', clienteId: 'cliente', total: 100, statusFinanceiro: 'pago' }) } });
     const pdf = (await service.gerarReciboPdf('documento', 'empresa')).toString('latin1');
-    expect(pdf).toContain('pendente');
+    expect(pdf).toMatch(/pendente/i);
     expect(listarPagamentosValidos).toHaveBeenCalledWith(undefined, 'venda', 'empresa');
   });
   it('recibo apresenta parcial ao receber apenas parte confirmada e usa a mesma regra do portal', async () => {

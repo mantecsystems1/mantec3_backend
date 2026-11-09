@@ -26,7 +26,7 @@ describe('OsController', () => {
 
     controller.iniciarDiagnostico('os-1', user);
 
-    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.EM_DIAGNOSTICO }, 'emp-1');
+    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.EM_DIAGNOSTICO }, 'emp-1', user);
   });
 
   it('aguarda peca usando status explicito', () => {
@@ -34,7 +34,7 @@ describe('OsController', () => {
 
     controller.aguardarPeca('os-1', user);
 
-    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.AGUARDANDO_PECA }, 'emp-1');
+    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.AGUARDANDO_PECA }, 'emp-1', user);
   });
 
   it('inicia execucao usando status explicito', () => {
@@ -42,7 +42,7 @@ describe('OsController', () => {
 
     controller.iniciarExecucao('os-1', user);
 
-    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.EM_EXECUCAO }, 'emp-1');
+    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.EM_EXECUCAO }, 'emp-1', user);
   });
 
   it('finaliza usando status explicito', () => {
@@ -50,7 +50,7 @@ describe('OsController', () => {
 
     controller.finalizar('os-1', user);
 
-    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.CONCLUIDA }, 'emp-1');
+    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.CONCLUIDA }, 'emp-1', user);
   });
 
   it('cancela usando status explicito', () => {
@@ -58,7 +58,7 @@ describe('OsController', () => {
 
     controller.cancelar('os-1', user);
 
-    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.CANCELADA }, 'emp-1');
+    expect(service.update).toHaveBeenCalledWith('os-1', { statusOperacional: OS_STATUS.CANCELADA }, 'emp-1', user);
   });
 
   it('encaminha reserva de peca ao service', () => {
@@ -67,7 +67,7 @@ describe('OsController', () => {
 
     controller.createReserva(dto, user);
 
-    expect(service.reservarPeca).toHaveBeenCalledWith(dto, 'emp-1');
+    expect(service.reservarPeca).toHaveBeenCalledWith(dto, 'emp-1', user);
   });
 
   it('encaminha consumo de reserva ao service', () => {
@@ -75,7 +75,7 @@ describe('OsController', () => {
 
     controller.consumirReserva('reserva-1', user);
 
-    expect(service.consumirReserva).toHaveBeenCalledWith('reserva-1', 'emp-1');
+    expect(service.consumirReserva).toHaveBeenCalledWith('reserva-1', 'emp-1', user);
   });
 
   it('encaminha remocao de reserva ao service', () => {
@@ -83,6 +83,6 @@ describe('OsController', () => {
 
     controller.removeReserva('reserva-1', user);
 
-    expect(service.removerReserva).toHaveBeenCalledWith('reserva-1', 'emp-1');
+    expect(service.removerReserva).toHaveBeenCalledWith('reserva-1', 'emp-1', user);
   });
 });
