@@ -19,7 +19,7 @@ async function bootstrap() {
 
   validateSecurityConfig(configService);
   configureTrustProxy(app, configService);
-  configureRequestId(app);
+  configureRequestId(app, configService);
   configureSecurityHeaders(app);
 
   const allowedOrigins = getCorsOrigins(configService);

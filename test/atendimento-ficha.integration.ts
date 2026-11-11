@@ -83,7 +83,8 @@ describe('Ficha interna: HTTP com guarda real, isolamento e projeção em Mongo 
     const fixture = await entrada();
     const before = await db.model(LogEvento.name).countDocuments();
     const ficha = await consulta(fixture.recebimento._id, 'atendente');
-    assert.match(ficha.referencia, /^Ref\. [A-F0-9]{6}$/);
+    // Registro sem protocolo: referência legível, sem expor trecho do ObjectId.
+    assert.equal(ficha.referencia, 'Entrada antiga');
     assert.equal(ficha.referenciaLegada, true);
     assert.equal(ficha.cliente.estado, 'disponivel');
     assert.deepEqual(itens(ficha.orcamentos), []);

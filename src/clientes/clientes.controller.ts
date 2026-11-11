@@ -38,6 +38,12 @@ export class ClientesController {
     return this.clientesService.verificarPossiveisDuplicados(query, user?.empresaId);
   }
 
+  @Get('paginado')
+  @RequireEvento(EVENTOS_NEGOCIO.CLIENTE_CONSULTAR)
+  findAllPaginado(@Query() query: Record<string, unknown>, @CurrentUser() user?: CurrentUserPayload) {
+    return this.clientesService.findAllPaginado(user?.empresaId, query);
+  }
+
   @Get(':id')
   @RequireEvento(EVENTOS_NEGOCIO.CLIENTE_CONSULTAR)
   @ApiOperation({ summary: 'Buscar cliente por ID' })
