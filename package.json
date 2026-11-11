@@ -23,7 +23,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "test:integration": "node -r ts-node/register test/pagamentos-transactions.integration.ts && npm run test:tenant-references && npm run test:estoque-concorrencia && npm run test:empresa-pix && npm run test:recebimento-completo && npm run test:rascunhos-recebimento && npm run test:atendimento-ficha && npm run test:orcamento-completo && npm run test:listas-paginadas",
+    "test:integration": "node -r ts-node/register test/pagamentos-transactions.integration.ts && npm run test:tenant-references && npm run test:estoque-concorrencia && npm run test:empresa-pix && npm run test:recebimento-completo && npm run test:rascunhos-recebimento && npm run test:atendimento-ficha && npm run test:orcamento-completo && npm run test:listas-paginadas && npm run test:cliente-cpf-opcional",
     "test:tenant-references": "node -r ts-node/register test/tenant-client-references.integration.ts",
     "test:estoque-concorrencia": "node -r ts-node/register test/estoque-concorrencia.integration.ts",
     "test:empresa-pix": "node -r ts-node/register test/empresa-pix.integration.ts",
@@ -31,7 +31,8 @@
     "test:rascunhos-recebimento": "node -r ts-node/register test/rascunho-recebimento.integration.ts",
     "test:atendimento-ficha": "node -r ts-node/register test/atendimento-ficha.integration.ts",
     "test:orcamento-completo": "node -r ts-node/register test/orcamento-completo.integration.ts",
-    "test:listas-paginadas": "node -r ts-node/register test/listas-paginadas.integration.ts"
+    "test:listas-paginadas": "node -r ts-node/register test/listas-paginadas.integration.ts",
+    "test:cliente-cpf-opcional": "node -r ts-node/register test/cliente-cpf-opcional.integration.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1137.0",

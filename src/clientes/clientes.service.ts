@@ -14,6 +14,19 @@ type ClienteAuditavelEvento =
   | typeof AUDITORIA_EVENTOS.CLIENTE_REMOVIDO
   | typeof AUDITORIA_EVENTOS.CLIENTE_DESATIVADO;
 
+const DOCUMENTO_EM_USO =
+  'Este CPF/CNPJ já está cadastrado nesta empresa. Consulte o cadastro existente antes de criar outro cliente.';
+
+/** CPF/CNPJ informado (sem espaços) ou undefined quando vazio: o documento é opcional. */
+const documentoInformado = (valor: unknown) => {
+  const texto = typeof valor === 'string' ? valor.trim() : '';
+  return texto || undefined;
+};
+
+/** Converte a violação do índice único do documento em 409 com mensagem para o operador. */
+const traduzirDocumentoDuplicado = (error: unknown) =>
+  (error as { code?: number })?.code === 11000 ? new ConflictException(DOCUMENTO_EM_USO) : error;
+
 @Injectable()
 export class ClientesService {
   constructor(
@@ -27,27 +40,32 @@ export class ClientesService {
       throw new BadRequestException('Empresa invalida para o cadastro do cliente');
     }
 
-    const duplicidade = await this.verificarPossiveisDuplicados({ cpfCnpj: createClienteDto.cpfCnpj }, empresaId);
-    if (duplicidade.documentoEmUso) {
-      throw new ConflictException('Este CPF/CNPJ já está cadastrado nesta empresa. Consulte o cadastro existente antes de criar outro cliente.');
+    const cpfCnpj = documentoInformado(createClienteDto.cpfCnpj);
+    if (cpfCnpj) {
+      const duplicidade = await this.verificarPossiveisDuplicados({ cpfCnpj }, empresaId);
+      if (duplicidade.documentoEmUso) throw new ConflictException(DOCUMENTO_EM_USO);
     }
 
-    const createdCliente = new this.clienteModel({ ...createClienteDto, empresaId });
+    const createdCliente = new this.clienteModel({
+      nome: createClienteDto.nome,
+      telefone: createClienteDto.telefone,
+      email: createClienteDto.email,
+      endereco: createClienteDto.endereco,
+      ...(typeof createClienteDto.ativo === 'boolean' ? { ativo: createClienteDto.ativo } : {}),
+      ...(cpfCnpj ? { cpfCnpj } : {}),
+      empresaId,
+    });
     let saved: ClienteDocument;
     try {
       saved = await createdCliente.save();
     } catch (error) {
-      const mongoError = error as { code?: number };
-      if (mongoError.code === 11000) {
-        throw new ConflictException('Este CPF/CNPJ já está cadastrado nesta empresa. Consulte o cadastro existente antes de criar outro cliente.');
-      }
-      throw error;
+      throw traduzirDocumentoDuplicado(error);
     }
 
     if (actorId) {
       await this.registrarAuditoriaCliente(saved, actorId, AUDITORIA_EVENTOS.CLIENTE_CRIADO, {
         nome: createClienteDto.nome,
-        cpfCnpj: createClienteDto.cpfCnpj,
+        cpfCnpj,
         email: createClienteDto.email,
         telefone: createClienteDto.telefone,
       });
@@ -62,14 +80,15 @@ export class ClientesService {
   ) {
     this.assertEmpresaInformada(empresaId);
     const documento = String(consulta.cpfCnpj ?? '').replace(/\D/g, '');
-    if (![11, 14].includes(documento.length)) throw new BadRequestException('Informe um CPF ou CNPJ válido para conferir possíveis cadastros repetidos.');
-    const documentoRegex = new RegExp(`^${documento.split('').join('[^0-9]*')}$`);
+    // Sem documento a conferência continua por nome e telefone (o CPF/CNPJ é opcional).
+    if (documento && ![11, 14].includes(documento.length)) throw new BadRequestException('Informe um CPF ou CNPJ válido para conferir possíveis cadastros repetidos.');
+    const documentoRegex = documento ? new RegExp(`^${documento.split('').join('[^0-9]*')}$`) : undefined;
     const nome = String(consulta.nome ?? '').trim().slice(0, 120);
     const telefone = String(consulta.telefone ?? '').replace(/\D/g, '').slice(0, 14);
     const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const telefoneRegex = telefone.length >= 10 ? new RegExp(`^${telefone.split('').join('[^0-9]*')}$`) : undefined;
     const [documentoEmUso, nomeCorrespondencias, telefoneCorrespondencias] = await Promise.all([
-      this.clienteModel.exists({ empresaId, cpfCnpj: documentoRegex }).exec(),
+      documentoRegex ? this.clienteModel.exists({ empresaId, cpfCnpj: documentoRegex }).exec() : Promise.resolve(null),
       nome.length >= 3 ? this.clienteModel.countDocuments({ empresaId, nome: new RegExp(`^${escapeRegex(nome)}$`, 'i') }).exec() : Promise.resolve(0),
       telefoneRegex ? this.clienteModel.countDocuments({ empresaId, telefone: telefoneRegex }).exec() : Promise.resolve(0),
     ]);
@@ -124,9 +143,36 @@ export class ClientesService {
       throw new BadRequestException('Cliente nao pode ser movido para outra empresa.');
     }
 
-    const updated = await this.clienteModel
-      .findOneAndUpdate(this.getEmpresaQuery(empresaId, { _id: id }), updateClienteDto, { new: true })
-      .exec();
+    // Só os campos editáveis, um a um e com o tipo esperado (nada do corpo vai direto para a consulta).
+    // Documento apagado no formulário remove o campo (não grava texto vazio).
+    const $set: Record<string, string | boolean | Record<string, string>> = {};
+    for (const campo of ['nome', 'telefone', 'email'] as const) {
+      const valor = updateClienteDto[campo];
+      if (typeof valor === 'string') $set[campo] = valor;
+    }
+    if (typeof updateClienteDto.ativo === 'boolean') $set.ativo = updateClienteDto.ativo;
+    if (updateClienteDto.endereco && typeof updateClienteDto.endereco === 'object') {
+      const endereco: Record<string, string> = {};
+      for (const campo of ['logradouro', 'numero', 'bairro', 'cidade', 'estado', 'cep'] as const) {
+        const valor = updateClienteDto.endereco[campo];
+        if (typeof valor === 'string') endereco[campo] = valor;
+      }
+      $set.endereco = endereco;
+    }
+    const documentoRecebido = updateClienteDto.cpfCnpj;
+    const cpfCnpj = documentoInformado(documentoRecebido);
+    if (cpfCnpj) $set.cpfCnpj = cpfCnpj;
+    const alteracao: Record<string, unknown> = { $set };
+    if (documentoRecebido !== undefined && !cpfCnpj) alteracao.$unset = { cpfCnpj: 1 };
+
+    let updated: ClienteDocument | null;
+    try {
+      updated = await this.clienteModel
+        .findOneAndUpdate(this.getEmpresaQuery(empresaId, { _id: id }), alteracao, { new: true })
+        .exec();
+    } catch (error) {
+      throw traduzirDocumentoDuplicado(error);
+    }
 
     if (actorId && updated) {
       await this.registrarAuditoriaCliente(updated, actorId, AUDITORIA_EVENTOS.CLIENTE_ATUALIZADO, {
