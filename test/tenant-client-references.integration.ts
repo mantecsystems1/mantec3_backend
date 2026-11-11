@@ -119,10 +119,12 @@ describe('OS e orcamentos isolam todas as referencias por empresa', { timeout: 1
     empresaId: a, clienteId: refs.clienteId, recebimentoEquipamentoId: refs.recebimentoEquipamentoId,
     criadoPor: refs.tecnicoId, status: 'rascunho', validade: '2026-12-01', subtotal: '10', total: '10',
   });
+  // A OS so pode nascer de um orcamento aprovado da mesma empresa (regra D5).
   const order = () => ({
     empresaId: a, clienteId: own.clienteId, recebimentoEquipamentoId: own.recebimentoEquipamentoId,
-    tecnicoId: own.tecnicoId, statusOperacional: 'aberta', prioridade: 'normal', dataEntrada: '2026-11-06',
+    tecnicoId: own.tecnicoId, orcamentoId: own.orcamentoAprovadoId, statusOperacional: 'aberta', prioridade: 'normal', dataEntrada: '2026-11-06',
   });
+  const approvedQuote = async () => String((await db.model('Orcamento').create({ ...quote(), status: 'aprovado' }))._id);
   const user = () => ({ empresaId: a, id: own.tecnicoId, _id: own.tecnicoId, sub: own.tecnicoId, nome: 'QA', email: 'qa@example.invalid' });
 
   before(async () => {
@@ -155,6 +157,7 @@ describe('OS e orcamentos isolam todas as referencias por empresa', { timeout: 1
       refs.produtoId = String((await produtos.create({ empresaId, nome: label === 'A' ? 'Peca A' : 'SEGREDO_PRODUTO_B' }))._id);
       refs.servicoId = String((await servicos.create({ empresaId, nome: label === 'A' ? 'Servico A' : 'SEGREDO_SERVICO_B' }))._id);
     }
+    own.orcamentoAprovadoId = String((await quotes.create({ ...quote(own), status: 'aprovado' }))._id);
     const audit = { registrarEventoNegocio: async () => undefined } as never;
     os = new OsService(orders as never, {} as never, {} as never, {} as never, audit, {} as never);
     orcamentos = new OrcamentosService(quotes as never, itens as never, audit, os);
@@ -163,7 +166,7 @@ describe('OS e orcamentos isolam todas as referencias por empresa', { timeout: 1
 
   it('permite criar, consultar e editar referencias da propria empresa', async () => {
     const q = await orcamentos.create(quote(), user());
-    const o = await os.create({ ...order(), orcamentoId: String(q._id) }, a);
+    const o = await os.create({ ...order(), orcamentoId: await approvedQuote() }, a);
     await orcamentos.update(String(q._id), { clienteId: own.clienteId }, a);
     await os.update(String(o._id), { tecnicoId: own.tecnicoId }, a);
     const foundQuote = await orcamentos.findOne(String(q._id), a);
@@ -193,7 +196,7 @@ describe('OS e orcamentos isolam todas as referencias por empresa', { timeout: 1
 
   it('rejeita troca de referencias em OS e orcamento sem alterar o registro', async () => {
     const q = await orcamentos.create(quote(), user());
-    const o = await os.create(order(), a);
+    const o = await os.create({ ...order(), orcamentoId: await approvedQuote() }, a);
     for (const campo of ['clienteId', 'tecnicoId', 'recebimentoEquipamentoId', 'orcamentoId'] as const) {
       await assert.rejects(os.update(String(o._id), { [campo]: other[campo] }, a), /Referencia nao encontrada/);
     }

@@ -179,7 +179,9 @@ describe('Pagamentos atomicos em MongoDB isolado', { timeout: 600000 }, () => {
   });
   it('não permite contornar unicidade associando duas OS ou vendas por edição concorrente', async () => {
     const input = await origem();
-    const a = await osService.create({ ...input, orcamentoId: undefined }, empresaId), b = await osService.create({ ...input, orcamentoId: undefined }, empresaId);
+    // OS sem orcamento so existem como dados legados (a criacao exige orcamento aprovado); simula esse legado direto no banco.
+    const legacyOrder = () => db.model('OrdemServico').create({ ...input, orcamentoId: undefined, empresaId });
+    const a = await legacyOrder(), b = await legacyOrder();
     const orders = await Promise.allSettled([a, b].map(o => osService.update(String(o._id), { orcamentoId: input.orcamentoId }, empresaId)));
     assert.equal(orders.filter(r => r.status === 'fulfilled').length, 1);
     assert.ok(orders.some(r => r.status === 'rejected' && isConflict(r.reason)));
@@ -401,7 +403,7 @@ describe('Pagamentos atomicos em MongoDB isolado', { timeout: 600000 }, () => {
       recebimentoEquipamentoId: new Types.ObjectId(), statusOperacional: 'concluida', prioridade: 'normal', dataEntrada: new Date() });
     await db.model('Venda').findByIdAndUpdate(vendaId, { origemTipo: 'ordem_servico', origemId: ordem._id, statusFinanceiro: 'pago' });
     const user = { empresaId, id: actorId, _id: actorId, sub: actorId, nome: 'Teste', email: 'teste@example.invalid' };
-    const entrega = { entregueParaNome: 'Cliente de teste', assinaturaImagemBase64: 'assinatura-sintetica' };
+    const entrega = { entregueParaTipo: 'cliente' as const, entregueParaNome: 'Cliente de teste', assinaturaImagemBase64: 'assinatura-sintetica' };
     await assert.rejects(osService.registrarEntrega(String(ordem._id), entrega, user), /pagamento total/);
     const payment = await service.create(dto('100'), actorId, empresaId);
     await financeiro.estornarMovimento(String(payment.movimentoCaixaId), { motivo: 'Teste' }, actorId, empresaId);
