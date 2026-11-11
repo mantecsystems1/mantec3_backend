@@ -1,6 +1,6 @@
 import { Types, type ClientSession, type Connection } from 'mongoose';
 
-export type TipoProtocoloOperacional = 'REC' | 'ORC' | 'OS';
+export type TipoProtocoloOperacional = 'REC' | 'ORC' | 'OS' | 'VEN';
 
 /**
  * Allocates a human-readable, tenant-scoped protocol. Gaps are intentional:

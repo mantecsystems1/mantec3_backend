@@ -17,6 +17,11 @@ const indexes = [
     keys: { empresaId: 1, numero: 1 },
     options: { unique: true, partialFilterExpression: { numero: { $type: 'string' } } },
   },
+  {
+    collection: 'vendas',
+    keys: { empresaId: 1, numero: 1 },
+    options: { unique: true, partialFilterExpression: { numero: { $type: 'string' } } },
+  },
 ];
 
 function argumentos() {

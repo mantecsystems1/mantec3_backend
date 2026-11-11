@@ -5,6 +5,9 @@ export type VendaDocument = Venda & Document;
 
 @Schema({ collection: 'vendas', timestamps: { createdAt: 'criadoEm' } })
 export class Venda {
+  @Prop()
+  numero?: string;
+
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Empresa', required: true })
   empresaId: Types.ObjectId;
 

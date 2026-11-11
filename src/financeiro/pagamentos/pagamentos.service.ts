@@ -66,6 +66,7 @@ export class PagamentosService {
     const vendaIds = await this.getVendaIdsEmpresa(empresaId);
     return this.pagamentoModel
       .find({ vendaId: { $in: vendaIds } })
+      .sort({ dataPagamento: -1, _id: -1 })
       .populate({
         path: 'vendaId',
         select: 'numero total clienteId criadoEm statusFinanceiro',

@@ -20,6 +20,7 @@ import { FinanceiroAdmService } from '../financeiro-adm/financeiro-adm.service';
 import { centavosParaDecimal128, dinheiroParaCentavos } from '../financeiro-adm/financeiro-adm.types';
 import { assertTenantReference } from '../../common/tenant-reference';
 import { executarTransacaoFinanceira, totalPagamentosValidosCentavos } from './venda-pagamentos-validos';
+import { gerarProtocoloOperacional } from '../../common/protocolo-operacional';
 
 @Injectable()
 export class VendasService {
@@ -160,8 +161,10 @@ export class VendasService {
         return this.findOne(String(existente._id), actorEmpresaId ?? dto.empresaId);
       }
     }
+    const numero = await gerarProtocoloOperacional(this.vendaModel.db, String(actorEmpresaId ?? dto.empresaId), 'VEN');
     const vendaData: any = {
       ...dto,
+      numero,
       subtotal: centavosParaDecimal128(totais.subtotalCentavos),
       descontos: centavosParaDecimal128(totais.descontosCentavos),
       total: centavosParaDecimal128(totais.totalCentavos),
@@ -193,6 +196,7 @@ export class VendasService {
           clienteId: dto.clienteId,
           origemTipo: dto.origemTipo,
           origemId: dto.origemId,
+          numero,
           total: totais.totalCentavos / 100,
           statusFinanceiro: dto.statusFinanceiro,
         },
@@ -207,7 +211,8 @@ export class VendasService {
   async findAll(empresaId?: string) {
     const vendas = await this.vendaModel
       .find(this.getEmpresaQuery(empresaId))
-      .populate({ path: 'clienteId', select: 'nome cpfCnpj email', match: (venda: any) => ({ empresaId: venda.empresaId }) })
+      .sort({ criadoEm: -1, _id: -1 })
+      .populate({ path: 'clienteId', select: 'nome cpfCnpj email', match: { empresaId } })
       .lean()
       .exec();
     return Promise.all(vendas.map((venda) => this.attachItensVenda(venda)));
@@ -216,7 +221,7 @@ export class VendasService {
   async findOne(id: string, empresaId?: string) {
     const venda = await this.vendaModel
       .findOne(this.getEmpresaQuery(empresaId, { _id: id }))
-      .populate({ path: 'clienteId', select: 'nome cpfCnpj email', match: (venda: any) => ({ empresaId: venda.empresaId }) })
+      .populate({ path: 'clienteId', select: 'nome cpfCnpj email', match: { empresaId } })
       .lean()
       .exec();
     return venda ? this.attachItensVenda(venda) : null;
