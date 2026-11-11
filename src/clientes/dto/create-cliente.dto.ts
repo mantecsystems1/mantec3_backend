@@ -6,9 +6,10 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { IsCpfCnpj } from '../../common/validators/cpf-cnpj';
 
 class ClienteEnderecoDto {
@@ -46,10 +47,12 @@ export class CreateClienteDto {
   @IsNotEmpty()
   nome: string;
 
+  /** Opcional. Quando informado, precisa ser um CPF ou CNPJ válido. Vazio remove o documento. */
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((dto: CreateClienteDto) => dto.cpfCnpj !== undefined && dto.cpfCnpj !== null && dto.cpfCnpj !== '')
   @IsString()
-  @IsNotEmpty()
   @IsCpfCnpj()
-  cpfCnpj: string;
+  cpfCnpj?: string;
 
   @IsOptional()
   @IsString()
