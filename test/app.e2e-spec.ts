@@ -4,7 +4,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppController } from '../src/app.controller';
-import { FirebaseAuthGuard } from '../src/auth/firebase/firebase.guard';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -12,25 +11,8 @@ describe('AppController (e2e)', () => {
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [
-        {
-          provide: getConnectionToken(),
-          useValue: { readyState: 1 },
-        },
-      ],
-    })
-      .overrideGuard(FirebaseAuthGuard)
-      .useValue({
-        canActivate: (context) => {
-          const requestContext = context.switchToHttp().getRequest();
-          requestContext.user = {
-            uid: 'user-e2e',
-            email: 'usuario.e2e@mantec.local',
-          };
-          return true;
-        },
-      })
-      .compile();
+      providers: [{ provide: getConnectionToken(), useValue: { readyState: 1 } }],
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();
@@ -40,13 +22,13 @@ describe('AppController (e2e)', () => {
     await app.close();
   });
 
-  it('/secure (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/secure')
-      .expect(200)
-      .expect({
-        uid: 'user-e2e',
-        email: 'usuario.e2e@mantec.local',
-      });
-  });
+  it('/health/live (GET)', () => request(app.getHttpServer()).get('/health/live').expect(200).expect((res) => {
+    expect(res.body.status).toBe('ok');
+  }));
+
+  it('/health/ready (GET)', () => request(app.getHttpServer()).get('/health/ready').expect(200).expect((res) => {
+    expect(res.body).toMatchObject({ status: 'ok', database: 'connected' });
+  }));
+
+  it('/secure (rota legada do Firebase) não existe mais', () => request(app.getHttpServer()).get('/secure').expect(404));
 });

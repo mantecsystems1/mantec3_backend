@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'crypto';
+import { requestLoggingMiddleware } from '../common/observability/request-logging';
 
 const DEFAULT_DEV_ORIGINS = [
   'http://localhost:5173',
@@ -69,14 +69,10 @@ export function configureSecurityHeaders(app: INestApplication) {
   });
 }
 
-export function configureRequestId(app: INestApplication) {
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    const incomingRequestId = req.header('x-request-id')?.trim();
-    const requestId = incomingRequestId || randomUUID();
-
-    res.setHeader('X-Request-Id', requestId);
-    next();
-  });
+export function configureRequestId(app: INestApplication, config?: ConfigService) {
+  // Logs de requisição em JSON ligados por padrão; REQUEST_LOGS=false desliga (ex.: testes).
+  const enabled = config?.get<string>('REQUEST_LOGS') !== 'false';
+  app.use(requestLoggingMiddleware({ enabled }));
 }
 
 export function configureTrustProxy(app: INestApplication, config: ConfigService) {
