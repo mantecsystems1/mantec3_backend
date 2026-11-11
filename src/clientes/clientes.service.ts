@@ -46,8 +46,15 @@ export class ClientesService {
       if (duplicidade.documentoEmUso) throw new ConflictException(DOCUMENTO_EM_USO);
     }
 
-    const { cpfCnpj: _documentoRecebido, ...dados } = createClienteDto;
-    const createdCliente = new this.clienteModel({ ...dados, ...(cpfCnpj ? { cpfCnpj } : {}), empresaId });
+    const createdCliente = new this.clienteModel({
+      nome: createClienteDto.nome,
+      telefone: createClienteDto.telefone,
+      email: createClienteDto.email,
+      endereco: createClienteDto.endereco,
+      ...(typeof createClienteDto.ativo === 'boolean' ? { ativo: createClienteDto.ativo } : {}),
+      ...(cpfCnpj ? { cpfCnpj } : {}),
+      empresaId,
+    });
     let saved: ClienteDocument;
     try {
       saved = await createdCliente.save();
@@ -136,10 +143,26 @@ export class ClientesService {
       throw new BadRequestException('Cliente nao pode ser movido para outra empresa.');
     }
 
+    // Só os campos editáveis, um a um e com o tipo esperado (nada do corpo vai direto para a consulta).
     // Documento apagado no formulário remove o campo (não grava texto vazio).
-    const { cpfCnpj: documentoRecebido, ...dados } = updateClienteDto;
+    const $set: Record<string, string | boolean | Record<string, string>> = {};
+    for (const campo of ['nome', 'telefone', 'email'] as const) {
+      const valor = updateClienteDto[campo];
+      if (typeof valor === 'string') $set[campo] = valor;
+    }
+    if (typeof updateClienteDto.ativo === 'boolean') $set.ativo = updateClienteDto.ativo;
+    if (updateClienteDto.endereco && typeof updateClienteDto.endereco === 'object') {
+      const endereco: Record<string, string> = {};
+      for (const campo of ['logradouro', 'numero', 'bairro', 'cidade', 'estado', 'cep'] as const) {
+        const valor = updateClienteDto.endereco[campo];
+        if (typeof valor === 'string') endereco[campo] = valor;
+      }
+      $set.endereco = endereco;
+    }
+    const documentoRecebido = updateClienteDto.cpfCnpj;
     const cpfCnpj = documentoInformado(documentoRecebido);
-    const alteracao: Record<string, unknown> = { $set: { ...dados, ...(cpfCnpj ? { cpfCnpj } : {}) } };
+    if (cpfCnpj) $set.cpfCnpj = cpfCnpj;
+    const alteracao: Record<string, unknown> = { $set };
     if (documentoRecebido !== undefined && !cpfCnpj) alteracao.$unset = { cpfCnpj: 1 };
 
     let updated: ClienteDocument | null;

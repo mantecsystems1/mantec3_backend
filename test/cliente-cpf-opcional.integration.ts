@@ -69,6 +69,23 @@ describe('CPF/CNPJ opcional no cadastro de clientes', { timeout: 120000 }, () =>
     assert.equal(soNome?.telefone, '11999990000');
   });
 
+  it('a edição grava só os campos editáveis, com o tipo esperado', async () => {
+    const cliente = await clientes.create({ empresaId: empresa, nome: 'Campos editáveis' } as CreateClienteDto);
+    const id = String(cliente._id);
+    const corpo = {
+      endereco: { logradouro: 'Rua A', cidade: 'Franca', extra: 'ignorado' },
+      ativo: false,
+      email: { $gt: '' },
+      criadoEm: new Date(0),
+    } as unknown as UpdateClienteDto;
+    const atualizado = await clientes.update(id, corpo, undefined, empresa);
+    assert.deepEqual(atualizado?.endereco, { logradouro: 'Rua A', cidade: 'Franca' });
+    assert.equal(atualizado?.ativo, false);
+    assert.equal(atualizado?.email, undefined);
+    const gravado = await model.findById(id).lean<Record<string, unknown>>();
+    assert.notEqual((gravado?.criadoEm as Date).getTime(), 0);
+  });
+
   it('a conferência de possíveis repetidos funciona sem documento', async () => {
     const resultado = await clientes.verificarPossiveisDuplicados({ nome: 'Sem documento A' }, empresa);
     assert.equal(resultado.documentoEmUso, false);
