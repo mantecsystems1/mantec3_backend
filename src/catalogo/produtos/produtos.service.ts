@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Produto, ProdutoDocument } from './schemas/produto.schema';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 import { UpdateProdutoDto } from './dto/update-produto.dto';
 import { centavosParaDecimal128, dinheiroParaCentavos } from '../../financeiro/financeiro-adm/financeiro-adm.types';
+import { buscaLiteralRegex, lerConsultaListaOperacional, respostaListaOperacional } from '../../common/paginacao-operacional';
 
 @Injectable()
 export class ProdutosService {
@@ -27,6 +28,26 @@ export class ProdutosService {
       .find(this.getEmpresaQuery(empresaId, { ativo: { $ne: false } }))
       .populate('aparelhoModeloId', 'marca modelo aliases')
       .exec();
+  }
+
+  /** Lista paginada de produtos ativos: busca por nome, código interno, tipo ou cor. */
+  async findAllPaginado(empresaId: string | undefined, query: Record<string, unknown>) {
+    // Nunca listar sem empresa: getEmpresaQuery sem empresaId não filtraria por empresa.
+    if (!empresaId) throw new UnauthorizedException('Empresa do usuario nao informada.');
+    const consulta = lerConsultaListaOperacional(query);
+    const filtro: Record<string, unknown> = { ativo: { $ne: false } };
+    if (consulta.busca) {
+      const texto = buscaLiteralRegex(consulta.busca);
+      filtro.$or = [{ nome: texto }, { codigoInterno: texto }, { tipoProduto: texto }, { cor: texto }];
+    }
+    const condicao = this.getEmpresaQuery(empresaId, filtro);
+    const [itens, total] = await Promise.all([
+      this.produtoModel.find(condicao).sort({ nome: 1, _id: 1 })
+        .skip((consulta.pagina - 1) * consulta.limite).limit(consulta.limite)
+        .populate('aparelhoModeloId', 'marca modelo aliases').exec(),
+      this.produtoModel.countDocuments(condicao).exec(),
+    ]);
+    return respostaListaOperacional(itens, total, consulta);
   }
 
   findOne(id: string, empresaId?: string) {

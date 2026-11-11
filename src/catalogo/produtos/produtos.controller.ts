@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { createHash } from 'crypto';
 import { mkdirSync, readFileSync } from 'fs';
@@ -81,6 +81,12 @@ export class ProdutosController {
   @RequireEvento(EVENTOS_NEGOCIO.CATALOGO_CONSULTAR)
   findAll(@CurrentUser() user?: CurrentUserPayload) {
     return this.produtosService.findAll(user?.empresaId);
+  }
+
+  @Get('paginado')
+  @RequireEvento(EVENTOS_NEGOCIO.CATALOGO_CONSULTAR)
+  findAllPaginado(@Query() query: Record<string, unknown>, @CurrentUser() user?: CurrentUserPayload) {
+    return this.produtosService.findAllPaginado(user?.empresaId, query);
   }
 
   @Get(':id')

@@ -6,6 +6,7 @@ import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UpdateClienteDto } from './dto/update-cliente.dto';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../auditoria/auditoria-eventos';
+import { buscaLiteralRegex, lerConsultaListaOperacional, respostaListaOperacional } from '../common/paginacao-operacional';
 
 type ClienteAuditavelEvento =
   | typeof AUDITORIA_EVENTOS.CLIENTE_CRIADO
@@ -82,6 +83,34 @@ export class ClientesService {
   findAll(empresaId?: string) {
     this.assertEmpresaInformada(empresaId);
     return this.clienteModel.find(this.getEmpresaQuery(empresaId)).exec();
+  }
+
+  /** Lista paginada no servidor: busca por nome, e-mail, telefone ou documento; filtro ativo/inativo. */
+  async findAllPaginado(empresaId: string | undefined, query: Record<string, unknown>) {
+    this.assertEmpresaInformada(empresaId);
+    const consulta = lerConsultaListaOperacional(query);
+    const filtro: Record<string, unknown> = {};
+    if (consulta.status === 'ativo') filtro.ativo = { $ne: false };
+    else if (consulta.status === 'inativo') filtro.ativo = false;
+    else if (consulta.status) throw new BadRequestException('O filtro de situação do cliente é inválido.');
+    if (consulta.busca) {
+      const texto = buscaLiteralRegex(consulta.busca);
+      const digitos = consulta.busca.replace(/\D/g, '');
+      filtro.$or = [
+        { nome: texto },
+        { email: texto },
+        { telefone: texto },
+        { cpfCnpj: texto },
+        ...(digitos.length >= 3 ? [{ telefone: buscaLiteralRegex(digitos) }, { cpfCnpj: buscaLiteralRegex(digitos) }] : []),
+      ];
+    }
+    const condicao = this.getEmpresaQuery(empresaId, filtro);
+    const [itens, total] = await Promise.all([
+      this.clienteModel.find(condicao).sort({ nome: 1, _id: 1 })
+        .skip((consulta.pagina - 1) * consulta.limite).limit(consulta.limite).exec(),
+      this.clienteModel.countDocuments(condicao).exec(),
+    ]);
+    return respostaListaOperacional(itens, total, consulta);
   }
 
   findOne(id: string, empresaId?: string) {
