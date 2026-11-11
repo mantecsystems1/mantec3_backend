@@ -24,7 +24,16 @@ if (fs.existsSync(envPath)) {
 const requestedUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/mantec';
 const fallbackUri = requestedUri.replace('://mongo:', '://127.0.0.1:');
 const adminEmail = process.env.ADMIN_EMAIL || 'admin@mantec.local';
-const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@2026';
+const adminPassword = process.env.ADMIN_PASSWORD || '';
+const MIN_ADMIN_PASSWORD_LENGTH = 12;
+
+if (adminPassword.length < MIN_ADMIN_PASSWORD_LENGTH) {
+  console.error(
+    `Defina ADMIN_PASSWORD com pelo menos ${MIN_ADMIN_PASSWORD_LENGTH} caracteres antes de executar este script. ` +
+      'Nao existe senha padrao.',
+  );
+  process.exit(1);
+}
 
 const buildSenhaHash = (password) => {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -112,7 +121,7 @@ const main = async () => {
 
   console.log('Acesso admin criado/atualizado com sucesso.');
   console.log(`Email: ${adminEmail.trim().toLowerCase()}`);
-  console.log(`Senha: ${adminPassword}`);
+  console.log('Senha: a informada em ADMIN_PASSWORD (nao exibida).');
   console.log('Perfil: admin');
   console.log(`Empresa: ${empresa.nomeFantasia || empresa.razaoSocial || empresa._id}`);
   console.log(`Mongo: ${connectedUri.replace(/\/\/.*@/, '//***@')}`);
