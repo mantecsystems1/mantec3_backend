@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { NotaFiscalServico, NotaFiscalServicoDocument } from './nota-fiscal-servico.schema';
@@ -7,6 +7,10 @@ import { UpdateNotaFiscalServicoDto } from './dto/update-nota-fiscal-servico.dto
 import { Venda, VendaDocument } from '../../financeiro/vendas/schemas/venda.schema';
 import { AuditoriaService } from '../../auditoria/auditoria.service';
 import { AUDITORIA_ENTIDADES, AUDITORIA_EVENTOS } from '../../auditoria/auditoria-eventos';
+
+const STATUS_EMITIDA = 'emitida';
+
+const isNotaEmitida = (status: unknown) => String(status ?? '').trim().toLowerCase() === STATUS_EMITIDA;
 
 @Injectable()
 export class NotaFiscalServicoService {
@@ -64,6 +68,10 @@ export class NotaFiscalServicoService {
       throw new NotFoundException('Nota fiscal nao encontrada.');
     }
 
+    if (isNotaEmitida(nota.status) && updateNotaFiscalServicoDto.status !== undefined && !isNotaEmitida(updateNotaFiscalServicoDto.status)) {
+      throw new ConflictException('Nota fiscal emitida nao pode voltar para outro status. O cancelamento deve ser feito pelo processo fiscal.');
+    }
+
     const venda = updateNotaFiscalServicoDto.vendaId
       ? await this.getVendaDaEmpresa(updateNotaFiscalServicoDto.vendaId, actorEmpresaId)
       : await this.getVendaDaEmpresa(nota.vendaId.toString(), actorEmpresaId);
@@ -83,8 +91,19 @@ export class NotaFiscalServicoService {
       throw new NotFoundException('Nota fiscal nao encontrada.');
     }
 
+    if (isNotaEmitida(nota.status)) {
+      throw new ConflictException('Nota fiscal emitida nao pode ser excluida. O cancelamento deve ser feito pelo processo fiscal.');
+    }
+
     const venda = await this.getVendaDaEmpresa(nota.vendaId.toString(), actorEmpresaId);
-    const removed = await this.notaFiscalServicoModel.findByIdAndDelete(id).exec();
+    // Condicao atomica: se a nota foi marcada como emitida entre a leitura e a exclusao, nada e removido.
+    const removed = await this.notaFiscalServicoModel
+      .findOneAndDelete({ _id: id, status: { $not: /^\s*emitida\s*$/i } })
+      .exec();
+
+    if (!removed) {
+      throw new ConflictException('Nota fiscal emitida nao pode ser excluida. O cancelamento deve ser feito pelo processo fiscal.');
+    }
 
     if (actorId && removed) {
       await this.registrarAuditoriaNotaFiscal(removed, venda, actorId, 'removida');
